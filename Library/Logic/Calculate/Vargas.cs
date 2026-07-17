@@ -3032,6 +3032,48 @@ namespace VedAstro.Library
         };
 
         /// <summary>
+        /// D30 : Trimshamsha, unequal 5-part division of a sign (BPHS).
+        /// Odd signs (Aries/Gemini/Leo/Libra/Sagittarius/Aquarius): 0-5 Mars, 5-10 Saturn, 10-18 Jupiter, 18-25 Mercury, 25-30 Venus.
+        /// Even signs: mirrored, 0-5 Venus, 5-12 Mercury, 12-20 Jupiter, 20-25 Saturn, 25-30 Mars.
+        /// Each lord is mapped to a fixed representative sign (masculine sign for odd, feminine for even).
+        /// RECONSTRUCTED FROM MEMORY - not verified against a classical reference, review before relying on for precise predictive work.
+        /// </summary>
+        public static Dictionary<ZodiacName, Dictionary<DegreeRange, ZodiacName>> TrimshamshaTable = BuildTrimshamshaTable();
+
+        private static Dictionary<ZodiacName, Dictionary<DegreeRange, ZodiacName>> BuildTrimshamshaTable()
+        {
+            var oddSignParts = new (DegreeRange range, ZodiacName sign)[]
+            {
+                (new DegreeRange(0, 5), ZodiacName.Aries),        //Mars
+                (new DegreeRange(5, 10), ZodiacName.Aquarius),    //Saturn
+                (new DegreeRange(10, 18), ZodiacName.Sagittarius),//Jupiter
+                (new DegreeRange(18, 25), ZodiacName.Gemini),     //Mercury
+                (new DegreeRange(25, 30), ZodiacName.Taurus),     //Venus
+            };
+            var evenSignParts = new (DegreeRange range, ZodiacName sign)[]
+            {
+                (new DegreeRange(0, 5), ZodiacName.Libra),        //Venus
+                (new DegreeRange(5, 12), ZodiacName.Virgo),       //Mercury
+                (new DegreeRange(12, 20), ZodiacName.Pisces),     //Jupiter
+                (new DegreeRange(20, 25), ZodiacName.Capricorn),  //Saturn
+                (new DegreeRange(25, 30), ZodiacName.Scorpio),    //Mars
+            };
+
+            var table = new Dictionary<ZodiacName, Dictionary<DegreeRange, ZodiacName>>();
+            for (int i = 0; i < ZodiacSign.All12ZodiacNames.Count; i++)
+            {
+                var sign = ZodiacSign.All12ZodiacNames[i];
+                var isOdd = (i % 2) == 0; //Aries (index 0) is the 1st sign, an odd-numbered sign
+                var parts = isOdd ? oddSignParts : evenSignParts;
+
+                var row = new Dictionary<DegreeRange, ZodiacName>();
+                foreach (var part in parts) { row[part.range] = part.sign; }
+                table[sign] = row;
+            }
+            return table;
+        }
+
+        /// <summary>
         /// D60 : Shashtyamsha or one-sixtieth of a sign (0°30').
         /// </summary>
         public static Dictionary<ZodiacName, Dictionary<DegreeRange, ZodiacName>> ShashtyamshaTable = new()

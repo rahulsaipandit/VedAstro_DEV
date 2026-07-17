@@ -322,7 +322,7 @@
                     <div class="form-control d-flex flex-wrap gap-2 rounded" style="width: fit-content;">
                         @if (_isResultReady)
                         {
-                            @foreach (var algorithmFunc in Algorithm.All)
+                            @foreach (var algorithmFunc in Algorithm.AllMethods)
                             {
                                 <div class="form-check">
                                     <input @bind="@(SelectedAlgorithmDictionary[algorithmFunc])" class="form-check-input" type="checkbox" value="" id="checkbox_@algorithmFunc.Name">
@@ -452,7 +452,7 @@
         await _jsRuntime.ShowLoading();
 
         //placeholder for data from checkboxes for Algorithms
-        SelectedAlgorithmDictionary = Algorithm.All.ToDictionary(methodInfo => methodInfo, methodInfo => false);
+        SelectedAlgorithmDictionary = Algorithm.AllMethods.ToDictionary(methodInfo => methodInfo, methodInfo => false);
 
         //SELECT DEFAULT ALGORITHMS
         //SET ON : 8 JAN "24
@@ -598,7 +598,8 @@
         {
             //if (SelectedTimeRangePreset == "selectage") { SelectedTimeRangePreset = $"age{SelectedLifeAgeStart}to{SelectedLifeAgeEnd}"; } //exp age4to50
             var systemTimezone = Tools.GetSystemTimezone();
-            timeRange = EventChartTools.AutoCalculateTimeRange(SelectedPerson, SelectedTimeRangePreset, systemTimezone);
+            var autoRange = Calculate.AutoCalculateTimeRange(SelectedPerson.BirthTime, SelectedTimeRangePreset, systemTimezone);
+            timeRange = new TimeRange(autoRange.start, autoRange.end);
         }
 
         return timeRange;

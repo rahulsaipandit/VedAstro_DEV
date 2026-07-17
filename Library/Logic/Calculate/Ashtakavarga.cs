@@ -84,7 +84,7 @@ namespace VedAstro.Library
             var bhinnashtakaChart = Calculate.BhinnashtakavargaChart(birthTime);
 
             var dict1 = ZodiacNameExtensions.AllZodiacSignsDictionary(0);
-            foreach (var chart in bhinnashtakaChart.Dictionary)
+            foreach (var chart in bhinnashtakaChart)
             {
                 var dict2 = chart.Value;
 

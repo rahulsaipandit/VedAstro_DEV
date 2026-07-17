@@ -40,6 +40,9 @@ namespace VedAstro.Library
 
         public const string DateTimeFormatTimezone = "zzz";
 
+        /// <summary>Alias of Calculate.LongitudeToLMTOffset, kept for callers expecting this name.</summary>
+        public static TimeSpan GetLocalTimeOffset(double longitudeDeg) => Calculate.LongitudeToLMTOffset(longitudeDeg);
+
         /// <summary>
         /// HH:mm dd/MM/yyyy
         /// </summary>

@@ -24,9 +24,7 @@ namespace VedAstro.Library
         /// Gets list all algorithm methods names & their descriptions for use in Website
         /// </summary>
         public static JArray All => JArray.FromObject(
-            typeof(Algorithm)
-                .GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
-                .Where(m => !m.Name.StartsWith("get_") && !m.Name.StartsWith("set_"))
+            AllMethods
                 .Select(m => new
                 {
                     Name = m.Name, //note : leave as unspaced name for id generation & let web js do camel spacing
@@ -34,6 +32,13 @@ namespace VedAstro.Library
                 })
                 .ToArray()
         );
+
+        /// <summary>Raw reflection info for each algorithm method, for callers that need to invoke them directly.</summary>
+        public static List<MethodInfo> AllMethods =>
+            typeof(Algorithm)
+                .GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                .Where(m => !m.Name.StartsWith("get_") && !m.Name.StartsWith("set_"))
+                .ToList();
 
         [Description("Turns off auto judging of events, all events coloured as Nuetral.")]
         public static double Neutral(Event foundEvent, Person person) => 0;

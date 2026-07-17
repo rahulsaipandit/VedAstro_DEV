@@ -19,7 +19,7 @@ namespace VedAstro.Library
     /// <summary>
     /// Represents a period of time "Event" with start, end time and data related
     /// </summary>
-    public class Event :  IToJson
+    public partial class Event :  IToJson
     {
         /// <summary>
         /// Returns an Empty Time instance meant to be used as null/void filler

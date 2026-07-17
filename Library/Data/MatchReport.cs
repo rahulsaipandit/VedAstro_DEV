@@ -10,7 +10,7 @@ namespace VedAstro.Library
     /// <summary>
     /// Represents the final data generated for compatibility
     /// </summary>
-    public class MatchReport : IToJson
+    public partial class MatchReport : IToJson
     {
 
         public static MatchReport Empty = new MatchReport("0", Person.Empty, Person.Empty, 0, "Empty Notes",

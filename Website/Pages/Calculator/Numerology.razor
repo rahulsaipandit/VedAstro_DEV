@@ -122,7 +122,7 @@
         foreach (var sampleName in nameList)
         {
             var number = Calculate.NameNumber(sampleName);
-            var predictionText = Calculate.NameNumberPrediction(sampleName).Truncate(194);
+            var predictionText = Calculate.NameNumberPrediction(sampleName).Prediction.Truncate(194);
             AccuratePredictionExampleList.Add(new { Name = sampleName, Number = number, Prediction = predictionText });
         }
 
@@ -138,7 +138,7 @@
         nameNumber = Calculate.NameNumber(nameInput);
 
         //using the number find prediction text
-        predictionOutputText = Calculate.NameNumberPrediction(nameInput);
+        predictionOutputText = Calculate.NameNumberPrediction(nameInput).Prediction;
 
         //make visible
         outputHolder.Show();

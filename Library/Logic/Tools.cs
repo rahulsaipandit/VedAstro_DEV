@@ -68,7 +68,7 @@ namespace VedAstro.Library
     /// A collection of general functions that don't have a home yet, so they live here for now.
     /// You're allowed to move them somewhere you see fit, not copy, move!! remember dear :-)
     /// </summary>
-    public static class Tools
+    public static partial class Tools
     {
 
         public const string BlobContainerName = "vedastro-site-data";
@@ -914,7 +914,7 @@ namespace VedAstro.Library
             else
             {
                 //get coordinates for location (API)
-                geoLocation = Calculate.AddressToGeoLocation(locationName);
+                geoLocation = Calculate.AddressToGeoLocation(locationName).GetAwaiter().GetResult();
             }
 
             //if timezone offset is +00:00/invalid the do API search else use as inputed by caller

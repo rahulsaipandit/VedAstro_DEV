@@ -9,8 +9,8 @@ namespace VedAstro.Library
     /// <summary>
     /// Simple class to hold user data
     /// </summary>
-    public class UserData
-    {        
+    public partial class UserData
+    {
         /// <summary>
         /// Guest users default account
         /// Empty instance of User with id 101

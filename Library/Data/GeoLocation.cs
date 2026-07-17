@@ -215,7 +215,37 @@ namespace VedAstro.Library
         /// Given a place's name, will get fully initialized GeoLocation.
         /// Using Google API
         /// </summary>
-        public static GeoLocation FromName(string locationName) => Calculate.AddressToGeoLocation(locationName);
+        public static GeoLocation FromName(string locationName) => Calculate.AddressToGeoLocation(locationName).GetAwaiter().GetResult();
+
+        /// <summary>Parses a GeoLocation from its ToXml() representation.</summary>
+        public static GeoLocation FromXml(System.Xml.Linq.XElement geoLocationXml) => FromJson(Tools.XmlToJsonObject(geoLocationXml));
+
+        /// <summary>
+        /// Guesses the visitor's location from their IP address, using the free GeoJS API.
+        /// Returns Empty if the lookup fails (e.g. offline local dev).
+        /// </summary>
+        public static async Task<GeoLocation> FromIpAddress()
+        {
+            try
+            {
+                using var client = new HttpClient();
+                client.Timeout = TimeSpan.FromSeconds(5);
+
+                var raw = await client.GetStringAsync(URL.GeoJsApiUrl);
+                var json = JObject.Parse(raw);
+
+                var latitude = double.Parse(json["latitude"]?.Value<string>() ?? "0");
+                var longitude = double.Parse(json["longitude"]?.Value<string>() ?? "0");
+                var name = json["city"]?.Value<string>() ?? "Unknown";
+
+                return new GeoLocation(name, longitude, latitude);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GeoLocation.FromIpAddress] failed: {ex.Message}");
+                return Empty;
+            }
+        }
 
 
         /// <summary>
@@ -286,7 +316,7 @@ namespace VedAstro.Library
                 {
 
                     //should return empty 
-                    var tryParsed = Calculate.AddressToGeoLocation(addressText);
+                    var tryParsed = Calculate.AddressToGeoLocation(addressText).GetAwaiter().GetResult();
 
                     //if empty than parse failed
                     var isParsed = !(tryParsed.Equals(Empty));
