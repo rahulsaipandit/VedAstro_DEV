@@ -249,14 +249,7 @@ import { initializeApp } from "firebase/app";
 // https://firebase.google.com/docs/web/setup#available-libraries
 
 // Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyASpfs9LOsedFz1mJvvJAsjKW9x_opagl8",
-  authDomain: "vedastro1-001.firebaseapp.com",
-  projectId: "vedastro1-001",
-  storageBucket: "vedastro1-001.firebasestorage.app",
-  messagingSenderId: "850521630629",
-  appId: "1:850521630629:web:add5df1ef5e8252cde2a4c"
-};
+
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
