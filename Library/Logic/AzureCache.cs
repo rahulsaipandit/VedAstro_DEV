@@ -18,21 +18,33 @@ namespace VedAstro.Library
     /// </summary>
     public static class AzureCache
     {
-        private static readonly BlobContainerClient blobContainerClient;
+        private static readonly BlobContainerClient? blobContainerClient;
         private const string blobContainerName = "cache";
 
         static AzureCache()
         {
-            //get the connection string stored separately (for security reasons)
-            var storageConnectionString = Secrets.Get("CentralStorageConnectionString");
+            try
+            {
+                //get the connection string stored separately (for security reasons)
+                //note: nullable - degrades gracefully for local dev if not set
+                var storageConnectionString = Secrets.VedAstroCentralStorageConnStr;
 
-            //get image from storage
-            blobContainerClient = new BlobContainerClient(storageConnectionString, blobContainerName);
+                if (string.IsNullOrEmpty(storageConnectionString)) { return; }
 
+                //get image from storage
+                blobContainerClient = new BlobContainerClient(storageConnectionString, blobContainerName);
+                blobContainerClient.CreateIfNotExists();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
         }
 
         public static List<BlobItem> ListBlobs(string searchKeyword)
         {
+            if (blobContainerClient == null) { return new List<BlobItem>(); }
+
             var blobItems = blobContainerClient.GetBlobs(prefix: searchKeyword).ToList();
 
             return blobItems;
@@ -44,6 +56,8 @@ namespace VedAstro.Library
             //            Console.WriteLine("CACHE TURNED OFF IN DEBUG MODE!!");
             //            return false;
             //#endif
+
+            if (blobContainerClient == null) { return false; }
 
             BlobClient blobClient = blobContainerClient.GetBlobClient(callerId);
 
@@ -252,6 +266,9 @@ namespace VedAstro.Library
             //if empty id, end here
             if (Person.Empty.Equals(newPerson)) { return; }
 
+            //no storage configured (eg. local dev without the connection string set), nothing to clear
+            if (blobContainerClient == null) { return; }
+
             //person id is placed in-front if that cache belongs to that person
             //as such get all cache such way and delete
             var foundCaches = blobContainerClient.GetBlobs(BlobTraits.All, BlobStates.None, newPerson.Id);
@@ -271,6 +288,9 @@ namespace VedAstro.Library
         {
             //if empty id, end here
             if (personId == "Empty") { return; }
+
+            //no storage configured (eg. local dev without the connection string set), nothing to clear
+            if (blobContainerClient == null) { return; }
 
             //person is placed in front if that cache belongs to that person
             //as such get all cache such way and delete

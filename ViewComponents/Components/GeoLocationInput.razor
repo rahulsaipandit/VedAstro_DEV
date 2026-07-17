@@ -223,12 +223,14 @@
     /// Takes location name and gets the coordinates
     /// and sets them in the input box
     /// </summary>
-    private async Task SetCoordinatesFromNameInput()
+    // Parameterless overload used by @onblur and OnClickCallback Blazor bindings
+    private async Task SetCoordinatesFromNameInput() => await SetCoordinatesFromNameInput(silent: false);
+
+    private async Task SetCoordinatesFromNameInput(bool silent)
     {
-        const string defaultLocationCountry = "Singapore";
+        //const string defaultLocationCountry = "Singapore";
 
-
-    TryAgain:
+    //TryAgain:
         var results = await Tools.AddressToGeoLocation(LocationName);
 
         //if fail, show message -> set default country -> try again
@@ -236,15 +238,19 @@
 	    var failedCall = !results.IsPass;
 	    if (failedCall || isEmpty)
         {
-            //alert user first with the wrong name
-            var msg = $"The location \"{LocationName}\", not found!" +
-                      $"\n Check spelling or try other nearby place.";
-            await _jsRuntime.ShowAlert("error", msg, true);
+            if (!silent)
+            {
+                //alert user first with the wrong name
+                var msg = $"The location \"{LocationName}\", not found!" +
+                          $"\n Check spelling or try other nearby place.";
+                await _jsRuntime.ShowAlert("error", msg, true);
+            }
 
             //change to default location & try again to get coordinates
-            LocationName = defaultLocationCountry;
-            goto TryAgain;
+            //LocationName = defaultLocationCountry;
+            //goto TryAgain;
 
+            return; // leave the user's typed text in place so they can correct it
         }
 
         //update user typed location name to proper formatted one
@@ -292,8 +298,8 @@
         //if fail set default location name
         LocationName = AppData.DefaultLocationCountry;
 
-        //update coordinates based on name
-        await SetCoordinatesFromNameInput();
+        //update coordinates based on name; silent=true so no alert on auto-load
+        await SetCoordinatesFromNameInput(silent: true);
 
 
     }

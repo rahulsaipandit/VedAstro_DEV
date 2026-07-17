@@ -9,41 +9,42 @@ namespace VedAstro.Library
     public static class AzureTable
     {
         // STORAGE SETTINGS
-        public static readonly string AccountName = Secrets.Get("CentralStorageAccountName");
-        private static readonly string StorageAccountKey = Secrets.Get("CentralStorageKey");
+        // NOTE: connection string based so Azurite (UseDevelopmentStorage=true) works for local dev;
+        // nullable because a missing key should not crash the whole class (see MakeClient)
+        private static readonly string? ConnStr = Secrets.VedAstroCentralStorageConnStr;
 
-
-        // CREDENTIALS AND SERVICE CLIENT
-        private static readonly TableSharedKeyCredential Credentials = new TableSharedKeyCredential(AccountName, StorageAccountKey);
-
-        private static readonly Uri ServiceUri = new Uri($"https://{AccountName}.table.core.windows.net");
-
-        private static readonly TableServiceClient TableServiceClient = new TableServiceClient(ServiceUri, Credentials);
+        private static TableClient? MakeClient(string tableName)
+        {
+            if (string.IsNullOrEmpty(ConnStr)) return null;
+            var client = new TableServiceClient(ConnStr).GetTableClient(tableName);
+            client.CreateIfNotExists();
+            return client;
+        }
 
         // TABLE CLIENTS
-        public static readonly TableClient PersonList = TableServiceClient.GetTableClient("PersonList");
+        public static readonly TableClient? PersonList = MakeClient("PersonList");
 
-        public static readonly TableClient SubscriberCallRecords = TableServiceClient.GetTableClient("SubscriberCallRecords");
-        
-        public static readonly TableClient AnonymousIpCallRecords = TableServiceClient.GetTableClient("AnonymousIpCallRecords");
+        public static readonly TableClient? SubscriberCallRecords = MakeClient("SubscriberCallRecords");
 
-        public static readonly TableClient UserDataList = TableServiceClient.GetTableClient("UserDataList");
+        public static readonly TableClient? AnonymousIpCallRecords = MakeClient("AnonymousIpCallRecords");
 
-        public static readonly TableClient LifeEventList = TableServiceClient.GetTableClient("LifeEventList");
-        
-        public static readonly TableClient OpenAPIErrorBook = TableServiceClient.GetTableClient("OpenAPIErrorBook");
-        
-        public static readonly TableClient CallTracker = TableServiceClient.GetTableClient("CallTracker");
+        public static readonly TableClient? UserDataList = MakeClient("UserDataList");
 
-        public static readonly TableClient WebsiteErrorLog = TableServiceClient.GetTableClient("WebsiteErrorLog");
+        public static readonly TableClient? LifeEventList = MakeClient("LifeEventList");
 
-        public static readonly TableClient WebsiteDebugLog = TableServiceClient.GetTableClient("WebsiteDebugLog");
-        public static readonly TableClient CallInfoStatistic = TableServiceClient.GetTableClient("CallInfoStatistic");
+        public static readonly TableClient? OpenAPIErrorBook = MakeClient("OpenAPIErrorBook");
+
+        public static readonly TableClient? CallTracker = MakeClient("CallTracker");
+
+        public static readonly TableClient? WebsiteErrorLog = MakeClient("WebsiteErrorLog");
+
+        public static readonly TableClient? WebsiteDebugLog = MakeClient("WebsiteDebugLog");
+        public static readonly TableClient? CallInfoStatistic = MakeClient("CallInfoStatistic");
 
         /// <summary>
         /// Allows multiple users to share one person profile with read & write privileges.
         /// Shared people will also appear in the drop-down list.
         /// </summary>
-        public static readonly TableClient PersonShareList = TableServiceClient.GetTableClient("PersonShareList");
+        public static readonly TableClient? PersonShareList = MakeClient("PersonShareList");
     }
 }

@@ -339,10 +339,11 @@ namespace VedAstro.Library
 
         // EXTENSION FUNCTIONS TO GET KEYS OUT OF MEMORY CACHE (USED IN ASTRONOMICAL FUNCTION CACHING)
 
-        private static readonly Func<MemoryCache, object> GetEntriesCollection = Delegate.CreateDelegate(
-            typeof(Func<MemoryCache, object>),
-            typeof(MemoryCache).GetProperty("EntriesCollection", BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(true),
-            throwOnBindFailure: true) as Func<MemoryCache, object>;
+        private static readonly Func<MemoryCache, object> GetEntriesCollection =
+            typeof(MemoryCache).GetProperty("EntriesCollection", BindingFlags.NonPublic | BindingFlags.Instance)
+                ?.GetGetMethod(true) is { } m
+                ? Delegate.CreateDelegate(typeof(Func<MemoryCache, object>), m) as Func<MemoryCache, object>
+                : null;
 
 
     }

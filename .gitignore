@@ -407,3 +407,13 @@ HuggingFace/RawRequestStatistic.csv
 /API/host.json
 /API/APITools/APITools.cs
 /API/FrontDesk/MaintenanceAPI.cs
+Setup.md
+
+docs/__azurite_db_blob__.json
+docs/__azurite_db_blob_extent__.json
+docs/__azurite_db_queue__.json
+docs/__azurite_db_queue_extent__.json
+docs/__azurite_db_table__.json
+docs/AzuriteConfig
+docs/VedAstro.sln
+docs/VedAstro.sln.DotSettings

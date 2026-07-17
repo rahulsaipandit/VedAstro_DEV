@@ -96,25 +96,31 @@ namespace Website
         /// </summary>
         public async Task<List<T>> GetListNoPolling<T, Y>(string inputUrl, Y byteData, Func<JToken, List<T>> converter)
         {
-
-            JToken? xListJson = await Tools.WriteServer<JObject, Y>(HttpMethod.Post, inputUrl, byteData);
-
-            //var cachedPersonList = Person.FromJsonList(personListJson);
-            var timeListJson = xListJson["Payload"];
-            var cachedPersonList = converter.Invoke(timeListJson);
-
-            return cachedPersonList;
-
+            try
+            {
+                JToken? xListJson = await Tools.WriteServer<JObject, Y>(HttpMethod.Post, inputUrl, byteData);
+                var timeListJson = xListJson["Payload"];
+                return converter.Invoke(timeListJson);
+            }
+            catch (HttpRequestException ex)
+            {
+                Console.WriteLine($"BLZ: API unreachable ({inputUrl}): {ex.Message}");
+                return new List<T>();
+            }
         }
         public async Task<List<T>> GetListNoPolling<T>(string inputUrl, Func<JToken, List<T>> converter)
         {
-            JToken? xListJson = await Tools.ReadServerRaw<JObject>(inputUrl);
-
-            var timeListJson = xListJson["Payload"];
-            var cachedPersonList = converter.Invoke(timeListJson);
-
-            return cachedPersonList;
-
+            try
+            {
+                JToken? xListJson = await Tools.ReadServerRaw<JObject>(inputUrl);
+                var timeListJson = xListJson["Payload"];
+                return converter.Invoke(timeListJson);
+            }
+            catch (HttpRequestException ex)
+            {
+                Console.WriteLine($"BLZ: API unreachable ({inputUrl}): {ex.Message}");
+                return new List<T>();
+            }
         }
 
         /// <summary>

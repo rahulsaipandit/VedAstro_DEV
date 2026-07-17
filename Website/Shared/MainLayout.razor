@@ -53,6 +53,13 @@
                 <div @onclick="OnClickStamp" style="cursor: pointer;" class="mt-1">
                     <img src="images/ce-fcc-recycle.svg">
                 </div>
+                <div @onclick="OnClickDebugMode" style="cursor: pointer;" class="mt-1 hstack gap-1"
+                     title="Toggle Local API Debug Mode">
+                    <span class="iconify"
+                          data-icon="@(_debugMode ? "mdi:lan-connect" : "mdi:lan-disconnect")"
+                          data-width="10"></span>
+                    <span>Local API: @(_debugMode ? "ON" : "OFF")</span>
+                </div>
             </div>
         </div>
 
@@ -128,6 +135,7 @@
 {
     private string subscribeEmailInput;
     private bool _loadExtra = true;
+    private bool _debugMode;
 
     /// <summary>
     /// notification after chart complete for UX sake
@@ -190,12 +198,11 @@
         //2: create url based on beta or stable
         //note : must do after
         //---------------------
-        bool debugMode;
         //user already logged in, get debug mode from browser setting if any
         //note: "debug mode" is stored local instead of online, because possible mobile use under same account
-        debugMode = await WebsiteTools.IsLocalServerDebugMode();
+        _debugMode = await WebsiteTools.IsLocalServerDebugMode();
 
-        AppData.URL = new URL(WebsiteTools.GetIsBetaRuntime(), debugMode);
+        AppData.URL = new URL(WebsiteTools.GetIsBetaRuntime(), _debugMode);
 
         //---------------------
 
@@ -217,7 +224,9 @@
         _mainPageInitDone = true;
 
         //7: check if on latest version (else raise warning)
+#if !DEBUG
         await CheckRaiseOutdatedWarning();
+#endif
 
     }
 
@@ -317,6 +326,13 @@
 #endif
             AppData.CurrentUser = UserData.FromXml(XElement.Parse(userDataXml)) ?? UserData.Guest;
         }
+    }
+
+    private async Task OnClickDebugMode()
+    {
+        // Store explicit value so the #if DEBUG default can still be overridden
+        await _jsRuntime.SetProperty("DebugMode", _debugMode ? "disabled" : "enabled");
+        await _jsRuntime.ReloadPage();
     }
 
     private async Task OnClickStamp()
