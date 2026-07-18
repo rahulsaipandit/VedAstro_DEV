@@ -10,7 +10,8 @@ calculation engine.
 ## Target architecture
 
 ```
-React + TypeScript (Vite)
+React Native (Expo) + TypeScript — web (react-native-web), iOS, Android
+from one codebase
         │  REST/JSON over HTTP
 ASP.NET Core Web API (Kestrel, self-hosted or containerized)
         │
@@ -142,15 +143,215 @@ rather than being done as an upfront separate pass).
   already-run data-cleanup script, low priority).
 - Nothing on this branch has been committed to git yet.
 
-### Phase 3 — Replace Blazor WASM with React + TypeScript
+### Phase 3 — Replace Blazor WASM with React Native (Expo) + TypeScript
 
-- Since the Website is already WASM calling the API over HTTP (no
-  server-side Blazor plumbing), this is a contained frontend rewrite: pick
-  React + TypeScript + Vite, port the ~120 Razor components page by page,
-  starting with the highest-traffic pages (chart generation, sign-in) and
-  leaving lower-traffic pages for last.
-- Consider running old (Blazor) and new (React) frontends side by side
-  during migration, routed by path, so the cutover isn't all-or-nothing.
+**Scope, confirmed by a full component survey** (see below) — 128 `.razor`
+files total: 70 in `Website/` (65 routed pages + layout/router shell), 58 in
+`ViewComponents/` (54 shared widgets/chart components + 3 page-level
+components + imports). All routing goes through one file,
+`ViewComponents\Code\Managers\PageRoute.cs` (route-string constants, no
+`@page` directives anywhere), giving a clean 1:1 source for the new route
+table. API access is not scattered inline — a real client layer already
+exists (`VedAstroAPI` facade with `.Match`/`.Person`/`.EventsChart`
+sub-clients, plus `WebsiteTools.cs` helpers and `URL`/`PageRoute` constant
+classes) that the new TS client can mirror method-for-method. Global state
+today is one static class, `AppData` (`ViewComponents\Code\Objects\AppData.cs`),
+with `localStorage`-backed persistence via a custom JS-interop
+`Interop.getProperty`/`setProperty` wrapper (this is what backs the
+`DebugMode` local-API toggle from `CLAUDE.md`/`Localhost_Setup.md`).
+
+**Why React Native (Expo), not plain React + Vite** — decided over the
+original plan: the goal is one codebase serving mobile web *and* native
+iOS/Android, not a web-only rewrite. This has real consequences beyond
+"different component library":
+- No CSS at all — RN uses `StyleSheet.create` objects, not Bootstrap,
+  Tailwind, or CSS modules. Every ported component is redesigned in a
+  mobile-friendly responsive style using RN's layout primitives
+  (`View`/`Text`/`Pressable`/Flexbox), not a straight markup port.
+- Several JS-interop pieces found in the survey have no RN equivalent and
+  need cross-platform library replacements, not native-only forks:
+  SweetAlert2 (`Swal.fire`/`.close`/`.showLoading`, ~heaviest use in
+  `EventsChartViewer.razor`) → a cross-platform modal/toast library;
+  tippy.js tooltips → a custom `Pressable` + popover component; the
+  Google/Facebook sign-in JS glue in `SignInButton.razor` (7 interop calls)
+  → `expo-auth-session` (or equivalent) so the same code path runs on
+  web/iOS/Android.
+- Two chart components need **no interop work at all** — `IndianChart` and
+  `SkyChartViewer` just point an `<img>` (→ RN `<Image>`) at a
+  server-rendered chart URL. The real interop lift is `StrengthChart`
+  (`JS.DrawPlanetStrengthChart`/`DrawHouseStrengthChart`, hand-rolled
+  canvas/SVG JS, no charting library) and `EventsChartViewer`.
+- The local-API-endpoint toggle (`DebugMode`) must keep working across all
+  three targets — replace the `localStorage`-via-JS-interop mechanism with
+  `expo-secure-store`/`AsyncStorage` behind one storage interface so the
+  toggle behaves identically on web and native.
+
+**Porting order**: highest-traffic first — chart generation
+(`Calculator/Horoscope`, `FamilyChart`, `Match/*`) and sign-in/account flows
+before lower-traffic pages (Blog, legal pages, Donate, FAQ). Matches the
+original plan; confirmed rather than revisited.
+
+**State management**: Zustand — replaces the static `AppData` class (current
+user, cached person list, dark mode, last-used location, etc.) with a real
+store; storage-backed slices (person cache, debug-mode toggle) persist via
+the cross-platform storage interface above instead of the old
+`Interop.getProperty`/`setProperty` calls.
+
+**API standardization**: the API currently has two parallel serialization
+conventions — legacy XML (`ServerManager.WriteToServerXmlReply`) and newer
+JSON (`Tools.WriteServer`/`Tools.ReadServerRaw`). Before/during the port,
+add JSON equivalents for any endpoint still XML-only so the new TS client
+speaks JSON exclusively — no XML parsing carried into the new frontend.
+
+**Cutover strategy**: run old (Blazor) and new (React Native Web) frontends
+side by side during migration, routed by path, so the cutover isn't
+all-or-nothing.
+
+### Status: Phase 3 — in progress
+
+New project `WebsiteNative/` (Expo SDK 57, expo-router, TypeScript, sibling to
+`Website/` — old and new frontends run side by side per the cutover strategy
+above). Structure: `src/app/` (routed screens, expo-router file-based —
+folder path matches `PageRoute.cs` strings, e.g. `Account/Login.tsx` ↔
+`PageRoute.Login = "Account/Login"`), `src/components/`, `src/constants/`
+(`routes.ts`/`urls.ts` mirroring `PageRoute.cs`/`URL.cs`), `src/store/`
+(Zustand), `src/lib/` (`api/`, `auth/`, `firebase/`).
+
+**Home page** (`Website/Pages/Index.razor` → `src/app/index.tsx`) — hero
+banner + shuffled quick-links card grid, rebuilt with RN `View`/`Pressable`/
+`StyleSheet` (no CSS/Bootstrap), real images copied from `wwwroot`.
+
+**Login/Account** (`Account/Login.razor` → `src/app/Account/Login.tsx`,
+`SignInButton.razor` → `src/components/SignInButton.tsx`, `InfoBox.razor` →
+`src/components/InfoBox.tsx`):
+- **Auth architecture** ended up different from (and more involved than) the
+  original Phase 3 plan's "expo-auth-session for sign-in" note, per a
+  decision made mid-implementation: `expo-auth-session` still drives the
+  Google/Facebook OAuth popup/redirect (`src/lib/auth/useGoogleSignIn.ts`/
+  `useFacebookSignIn.ts`, generic `AuthRequest` primitives since the
+  built-in provider helpers are deprecated), but the resulting raw
+  token is then exchanged for a **Firebase** user via
+  `signInWithCredential` (`src/lib/firebase/firebaseSignIn.ts`), and it's
+  *that* Firebase ID token that gets verified server-side — not the raw
+  Google/Facebook token directly.
+- **API**: new `/api/SignInFirebase/Token/{token}` endpoint
+  (`API/FrontDesk/SignInAPI.cs`), verified via the `FirebaseAdmin` NuGet
+  package (`FirebaseAuth.VerifyIdTokenAsync`), writing to the same
+  `UserData` table via the existing `AddOrUpdateUserData`. `Program.cs`
+  initializes `FirebaseApp` from a service-account key path at startup,
+  degrading gracefully (console warning, not a crash) if unconfigured.
+- The old Blazor site's `/api/SignInGoogle`/`/api/SignInFacebook` endpoints
+  (direct Google/Facebook token verification, already JSON) are **left
+  alone, not dead code** — `ViewComponents/Components/SignInButton.razor`
+  still calls them directly and continues to work unchanged.
+
+**Guest mode** — sign-in is optional everywhere, not gated per-page:
+- `useAppStore`'s guest ID is the real sentinel `"101"` shared with the
+  existing backend (`Library/Data/UserData.cs`'s `UserData.Guest`,
+  `PersonAPI.cs`'s ownerId-swap logic, `MatchAPI.cs`'s `"101"` userId) —
+  parity with the system, not a new local convention.
+- `visitorId` (per-device anonymous ID, persisted) +
+  `effectiveOwnerId()` (visitor ID when guest, real ID when signed in)
+  mirror `PersonTools.cs`'s `ownerId = UserId == "101" ? VisitorID : UserId`
+  exactly, so a guest's person list is private to their device and
+  migrates onto their account automatically on login (server-side
+  `SwapUserId`, unchanged).
+- Login screen has an explicit "Continue as Guest" link.
+- **Bug found and fixed along the way**: generating the visitor ID inside a
+  Zustand selector (called during render) broke `expo export`'s static
+  prerendering — the persisted store's `set()` reaches for
+  `window`/`localStorage` in the Node prerender environment, where neither
+  exists. Fixed by making `effectiveOwnerId()` a pure read and moving
+  visitor-ID creation into `_layout.tsx`'s mount `useEffect` instead. Worth
+  remembering as a general rule for the rest of the port: **no store
+  mutations during render**, only in effects/handlers.
+
+**Match** (`Calculator/Match/Index.razor` → `src/app/Match/index.tsx`,
+`PersonSelectorBox.razor` → `src/components/PersonSelector.tsx`,
+`Match/Report.razor` → `src/app/Match/Report/[maleId]/[femaleId].tsx`):
+- `PersonSelector` is a real port (own list + public/example list from
+  `GetPersonList`/`OwnerId/101`, search, selection) — not a stub.
+- Match index: two person selectors, Calculate button with the same
+  validation chain as the original (missing selection, same-person
+  confirm, reversed-gender confirm — via a small `confirm()` promise
+  wrapper around RN `Alert`, replacing the old SweetAlert2 confirm calls
+  for *this* flow only, see dead/deferred code below), InfoBox links,
+  static article text.
+- **Backend gap found and closed just enough to make this real**: the old
+  Blazor site's one-on-one match report had *no* ported backend endpoint —
+  Phase 1+2 only carried over `FindMatch` (global search), not
+  `GetMatchReport` (direct two-person report). Added
+  `/api/GetMatchReport/MaleId/{id}/FemaleId/{id}` to `MatchAPI.cs`
+  (live-computed via the existing `MatchReportFactory`, JSON, not
+  persisted), covered by a new integration test.
+- `MatchReportListViewer.razor` (the "saved reports" example list on the
+  old Match/Index page) was **not** ported — `GetMatchReportList`/
+  `SaveMatchReport` (XML-only) were never carried into this ASP.NET Core
+  API in Phase 1+2 and have no Postgres persistence backing them at all;
+  porting the viewer meaningfully would mean designing and building that
+  persistence from scratch, which is out of scope for a page port. Flagged
+  as an open question below, not silently dropped.
+
+**Verification methodology used throughout** (same bar as Phase 1+2): `tsc
+--noEmit` after every change, `npx expo export --platform web` to confirm
+actual bundling/static-rendering (not just typechecking) of every new
+route, `dotnet build`/`dotnet test` for every API-side change, all API
+integration tests re-run full-suite before considering a slice done.
+
+### Dead/unreachable/deferred code left alone during Phase 3 so far
+
+- **Icon system**: the old app uses Iconify (`data-icon="..."` spans) for
+  essentially every icon (`Icon`/`IconButton`/`IconTitle`/`InfoBox`/
+  `PersonSelectorBox`, etc.). No RN icon library has been chosen yet —
+  `InfoBox`/`PersonSelector` ports so far are text-only, icons dropped
+  rather than faked. Needs a decision (`@expo/vector-icons` is the
+  Expo-bundled default candidate) before porting most other pages, since
+  nearly every remaining component uses one.
+- **SweetAlert2/tippy.js general replacement**: migration.md's Phase 3 plan
+  called for picking one cross-platform library per concern up front. That
+  hasn't happened yet — only a narrow, local `confirm()` helper
+  (`src/lib/confirm.ts`, wraps RN `Alert`) exists, built for Match's
+  same-person/reversed-gender confirms specifically. `EventsChartViewer`'s
+  heavier SweetAlert2 usage (calendar export, SVG export, clipboard,
+  bookmarks — see the original Phase 3 survey) is untouched.
+- **AddPerson / Person.Editor flow**: not ported. `PersonSelector`'s
+  "Add New Person" button shows an honest "coming soon" alert instead of
+  navigating anywhere. This caps how useful Match/Horoscope/etc. actually
+  are right now — a guest or user can only pick from example people until
+  this exists.
+- **`Match/Finder`, `Match/SavedReports`, `Match/Profile`**: not ported
+  (only `Match/Index` and a minimal `Match/Report`). Links to
+  `PageRoute.MatchFinder` from both the Home page and Match/Index exist
+  but currently 404 in `WebsiteNative` — expected/incremental, same as any
+  not-yet-ported route linked from an already-ported page.
+- Old Blazor endpoints/components (`SignInGoogle`/`SignInFacebook` API
+  routes, `SignInButton.razor` itself, `MatchReportListViewer.razor`, the
+  XML `WebsiteTools.GetSavedMatchList`) are **not dead** — the Blazor site
+  still runs and still uses them. Nothing on the API side was removed or
+  changed in a way that could break it; only additive endpoints
+  (`SignInFirebase`, `GetMatchReport`) were introduced.
+
+### Open questions for the rest of Phase 3
+
+- **Icon library choice** — blocks a clean port of most remaining
+  components (see above).
+- **Firebase service-account key** — `/api/SignInFirebase` degrades
+  gracefully without one, but sign-in can't actually complete end-to-end
+  until a real key is generated (Firebase Console → Project Settings →
+  Service Accounts) and placed at `API/firebase-service-account.json`
+  (gitignored).
+- **OAuth redirect URI registration** — the Google/Facebook app
+  registrations reused from the Blazor site only allow `vedastro.org`'s
+  origin today; `WebsiteNative`'s dev/native origins need adding in each
+  console before sign-in completes for real, separately from the Firebase
+  key above.
+- **Saved match reports** — no decision yet on whether to design real
+  Postgres persistence for `GetMatchReportList`/`SaveMatchReport` (a
+  genuinely new feature relative to what Phase 1+2 ported) or leave
+  "saved reports" as a feature the new app simply doesn't have.
+- **SweetAlert2/tippy.js replacement libraries** — still an open pick, not
+  yet needed broadly since so few components are ported, but will block
+  `EventsChartViewer` and any page with tooltips once those come up.
 
 ### Phase 4 — Cutover and cleanup
 
@@ -169,3 +370,17 @@ rather than being done as an upfront separate pass).
 - **Migration order for Phase 1 vs 2**: done together, per API endpoint —
   migrate one endpoint plus its data access at a time, rather than
   splitting `Library` fully first before touching the API host.
+- **Phase 3 frontend framework**: React Native (Expo) + TypeScript, not
+  plain React — one codebase for mobile web (via react-native-web) and
+  native iOS/Android, redesigned mobile-friendly/responsive rather than
+  ported as-is. No Bootstrap/Tailwind/CSS modules; styling is RN's
+  `StyleSheet` API.
+- **Phase 3 API serialization**: standardize on JSON — add JSON endpoints
+  for anything still XML-only, so the new TS client never parses XML.
+- **Phase 3 page-porting order**: highest-traffic first (chart generation,
+  sign-in/account, Match), lower-traffic pages (Blog, legal, Donate) last.
+- **Phase 3 state management**: Zustand, replacing the static `AppData`
+  class.
+- **Phase 3 native-only JS interop replacements** (SweetAlert2, tippy.js,
+  Google/Facebook sign-in): cross-platform RN libraries picked once per
+  concern (e.g. `expo-auth-session` for sign-in), not per-platform forks.

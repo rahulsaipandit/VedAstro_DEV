@@ -19,6 +19,30 @@ namespace API
 
                 await APITools.PassMessageJson(returnJson, context);
             });
+
+            // Live-computed one-on-one compatibility report for two specific people (not persisted -
+            // see WebsiteNative's Match/Report screen). NOTE: this is scope-limited to what
+            // MatchReportFactory already computes; the old Blazor site's "saved reports"
+            // feature (GetMatchReportList/SaveMatchReport, an XML-only endpoint pair) was never
+            // ported to this ASP.NET Core API in Phase 1+2 and has no Postgres-backed persistence -
+            // that remains a known gap, not something this endpoint fixes.
+            app.MapGet("/api/GetMatchReport/MaleId/{maleId}/FemaleId/{femaleId}", async (HttpContext context, string maleId, string femaleId) =>
+            {
+                try
+                {
+                    var male = Tools.GetPersonById(maleId);
+                    var female = Tools.GetPersonById(femaleId);
+
+                    var report = MatchReportFactory.GetNewMatchReport(male, female, "101");
+
+                    await APITools.PassMessageJson(report.ToJson(), context);
+                }
+                catch (Exception e)
+                {
+                    APILogger.Error(e, context.Request);
+                    await APITools.FailMessageJson(e, context);
+                }
+            });
         }
 
 

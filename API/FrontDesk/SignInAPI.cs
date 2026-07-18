@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using FirebaseAdmin.Auth;
 using Google.Apis.Auth;
 using Newtonsoft.Json.Linq;
 using VedAstro.Library;
@@ -61,6 +62,36 @@ namespace API
                     await APITools.PassMessageJson(userDataForWebClient, context);
                 }
                 //if any failure, reply as in valid login & log the event
+                catch (Exception e)
+                {
+                    APILogger.Error(e, context.Request);
+                    await APITools.FailMessageJson("Login Failed", context);
+                }
+            });
+
+            // Verifies a Firebase ID token (produced by WebsiteNative's Firebase Auth sign-in,
+            // which itself wraps the Google/Facebook OAuth credential obtained via
+            // expo-auth-session - see WebsiteNative/src/lib/firebase). Same Pass/Fail envelope
+            // and AddOrUpdateUserData call as the two endpoints above, so both the old Blazor
+            // site (direct Google/Facebook token verification) and the new RN app (Firebase
+            // token verification) write to the same UserData table.
+            app.MapGet("/api/SignInFirebase/Token/{token}", async (HttpContext context, string token) =>
+            {
+                try
+                {
+                    var decodedToken = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(token);
+                    var userId = decodedToken.Uid;
+                    var userName = decodedToken.Claims.TryGetValue("name", out var nameClaim) ? nameClaim?.ToString() : null;
+                    var userEmail = decodedToken.Claims.TryGetValue("email", out var emailClaim) ? emailClaim?.ToString() : null;
+
+                    await AddOrUpdateUserData(userId, userName ?? userEmail ?? userId, userEmail ?? "");
+
+                    var userDataForWebClient = new JObject();
+                    userDataForWebClient["Name"] = userName ?? userEmail ?? userId;
+                    userDataForWebClient["Id"] = userId;
+
+                    await APITools.PassMessageJson(userDataForWebClient, context);
+                }
                 catch (Exception e)
                 {
                     APILogger.Error(e, context.Request);

@@ -1,3 +1,5 @@
+using FirebaseAdmin;
+using Google.Apis.Auth.OAuth2;
 using Microsoft.EntityFrameworkCore;
 using VedAstro.Data;
 using VedAstro.Data.Cache;
@@ -112,6 +114,27 @@ namespace API
             var app = builder.Build();
 
             app.UseCors("AllowAll");
+
+            // Firebase Admin SDK - verifies ID tokens produced by the React Native client's
+            // Firebase Auth sign-in (see WebsiteNative/src/lib/firebase and SignInAPI.cs's
+            // /api/SignInFirebase/Token/{token}). Degrades gracefully when the service account
+            // key isn't configured, same pattern as LOCAL_LLM_BASE_URL/SendEmail elsewhere in
+            // this codebase - the old Blazor site's direct Google/Facebook endpoints are
+            // unaffected either way.
+            var firebaseServiceAccountKeyPath = builder.Configuration["FirebaseServiceAccountKeyPath"];
+            if (!string.IsNullOrWhiteSpace(firebaseServiceAccountKeyPath) && File.Exists(firebaseServiceAccountKeyPath))
+            {
+                FirebaseApp.Create(new AppOptions
+                {
+                    Credential = GoogleCredential.FromFile(firebaseServiceAccountKeyPath)
+                });
+            }
+            else
+            {
+                Console.WriteLine("WARN: FirebaseServiceAccountKeyPath not configured or file not found - " +
+                                   "/api/SignInFirebase will fail until a real service account key is set " +
+                                   "(Firebase Console > Project Settings > Service Accounts > Generate new private key).");
+            }
 
             // ---- Wire the Library's static Repositories locator (see Library/Logic/Repositories.cs) ----
             // Data-access static classes living in Library (CallTracker.cs, Tools.cs, ApiStatistic.cs,
