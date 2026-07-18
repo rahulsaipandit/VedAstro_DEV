@@ -198,6 +198,8 @@
             var year = await _jsRuntime.GetText($"#YearInput{InstanceID}");
 
 
+            Console.WriteLine($"TEMP DEBUG raw time input: hour='{hour}' minute='{minute}' meridian='{meridian}'"); // TEMP DEBUG
+
             //convert 12H time from input to 24H
             DateTime dt = DateTime.Parse($"{hour}:{minute} {meridian}");
             var hour24 = dt.ToString("HH:mm");

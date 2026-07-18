@@ -1703,6 +1703,13 @@ namespace VedAstro.Library
             //send request to API server
             var result = await RequestServer(apiUrl, 3);
 
+            //all retries failed (eg. API unreachable) - no response to read
+            if (result == null)
+            {
+                var noResponseJson = new JObject { ["RawErrorData"] = "API unreachable" };
+                return new WebResult<JToken>(false, noResponseJson);
+            }
+
             //get raw reply from the server response
             var rawMessage = await result.Content?.ReadAsStringAsync() ?? "";
 
@@ -1734,7 +1741,7 @@ namespace VedAstro.Library
                     LibLogger.Debug(e1, inputRawString);
 
                     //if control reaches here all has failed
-                    return new WebResult<JToken>(false, new JObject("Failed"));
+                    return new WebResult<JToken>(false, new JObject { ["Error"] = "Failed" });
                 }
 
             }
@@ -1779,6 +1786,13 @@ namespace VedAstro.Library
             //send request to API server
             var result = await RequestServer(apiUrl, 3);
 
+            //all retries failed (eg. API unreachable) - no response to read
+            if (result == null)
+            {
+                var noResponseJson = new JObject { ["RawErrorData"] = "API unreachable" };
+                return new WebResult<JToken>(false, noResponseJson);
+            }
+
             //get raw reply from the server response
             var rawMessage = await result.Content?.ReadAsStringAsync() ?? "";
 
@@ -1816,7 +1830,7 @@ namespace VedAstro.Library
                     LibLogger.Debug(e1, $"URL:{apiUrl}-->{inputRawString}");
 
                     //if control reaches here all has failed
-                    return new WebResult<JToken>(false, new JObject("Failed"));
+                    return new WebResult<JToken>(false, new JObject { ["Error"] = "Failed" });
                 }
 
             }

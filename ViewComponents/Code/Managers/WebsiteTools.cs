@@ -389,6 +389,14 @@ namespace Website
                 //even calling throw will do nothing
                 //throw;
             }
+            finally
+            {
+                //NOTE: if the invocation showed a loading dialog and threw before reaching its own
+                //HideLoading() call, the dialog (containing a looping progress GIF) would otherwise
+                //stay stuck on screen forever, looking like an infinite loop. Safe to call even when
+                //no loading dialog is open.
+                jsRuntime.HideLoading();
+            }
         }
 
 

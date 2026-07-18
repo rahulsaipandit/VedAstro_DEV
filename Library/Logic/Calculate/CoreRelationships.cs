@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -248,5 +249,107 @@ namespace VedAstro.Library
             //System.DayOfWeek is 0-based (Sunday=0), VedAstro.Library.DayOfWeek is 1-based (Sunday=1)
             return (DayOfWeek)((int)effectiveInstant.DayOfWeek + 1);
         }
+
+        //-------------------------------------------------------------------------
+        // Restored from pre-existing history (see docs/Library/Logic/Calculate/Calculate.cs)
+        // for use by the restored CalculateHoroscope.cs. Only renamed dependency:
+        // AllHouseMiddleLongitudes -> AllHouseLongitudes (current name for the same method).
+
+        /// <summary>
+        /// Gets the House number a given planet is in at a time
+        /// </summary>
+        public static HouseName HousePlanetOccupies(PlanetName planetName, Time time)
+        {
+            //get the planets longitude
+            var planetLongitude = PlanetNirayanaLongitude(planetName, time);
+
+            //get all houses
+            var houseList = AllHouseLongitudes(time);
+
+            //loop through all houses
+            foreach (var house in houseList)
+            {
+                //check if planet is in house's range
+                var planetIsInHouse = house.IsLongitudeInHouseRange(planetLongitude);
+
+                //if planet is in house
+                if (planetIsInHouse)
+                {
+                    //return house's number
+                    return house.GetHouseName();
+                }
+            }
+
+            //if planet not found in any house, raise error
+            throw new Exception("Planet not in any house, error!");
+        }
+
+        /// <summary>
+        /// Checks if the lord of a house is in the specified house.
+        /// Example question : Is Lord of 1st house in 2nd house?
+        /// </summary>
+        public static bool IsHouseLordInHouse(HouseName lordHouse, HouseName occupiedHouse, Time time)
+        {
+            //get the house lord
+            var houseLord = LordOfHouse(lordHouse, time);
+
+            //get house the lord is in
+            var houseIsIn = HousePlanetOccupies(houseLord, time);
+
+            //if it matches then occuring
+            return houseIsIn == occupiedHouse;
+        }
+
+        /// <summary>
+        /// Checks if any planet in list is at a given house at a specified time
+        /// </summary>
+        public static bool IsAnyPlanetInHouse(List<PlanetName> planetList, HouseName houseNumber, Time time)
+        {
+            //calculate each planet, even if 1 planet is out, then return as false
+            foreach (var planetName in planetList)
+            {
+                var tempVal = IsPlanetInHouse(planetName, houseNumber, time);
+                if (tempVal == true) { return true; }
+            }
+
+            // if control reaches here then no planet is in house
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if a given house's zodiac sign matches the input sign
+        /// </summary>
+        public static bool IsHouseSignName(HouseName house, ZodiacName sign, Time time) => HouseSignName(house, time) == sign;
+
+        /// <summary>
+        /// Checks if a given planet is Malefic
+        /// </summary>
+        public static bool IsPlanetMalefic(PlanetName planetName, Time time)
+        {
+            //get list of malefic planets
+            var maleficPlanetList = MaleficPlanetList(time);
+
+            //check if input planet is in the list
+            var planetIsMalefic = maleficPlanetList.Contains(planetName);
+
+            return planetIsMalefic;
+        }
+
+        /// <summary>
+        /// Given a birth time will calculate all predictions that match for given birth time.
+        /// Default includes all predictions, ie: Yoga, Planets in Sign, AshtakavargaYoga
+        /// Can be filtered.
+        /// </summary>
+        /// <param name="filterTag">Set to only show certain types of predictions</param>
+        public static List<HoroscopePrediction> HoroscopePredictions(Time birthTime, EventTag filterTag = EventTag.Empty) =>
+            Tools.GetHoroscopePrediction(birthTime, filterTag);
+
+        /// <summary>
+        /// Given a birth time will calculate all prediction name's that match for given birth time
+        /// example : "Moon House 8", "10th Lord in 8th House"
+        /// note : used by AI Chat, when talking to Astro tuned LLM server
+        /// </summary>
+        public static List<string> HoroscopePredictionNames(Time birthTime) =>
+            Tools.GetHoroscopePrediction(birthTime).Select(x => x.Name.ToString()).ToList();
     }
 }

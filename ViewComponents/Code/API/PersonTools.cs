@@ -78,11 +78,15 @@ public class PersonTools
 
         //send newly created person to API server
         //pass in user id to make sure user has right to delete
-        //http://localhost:7071/api/AddPerson/OwnerId/234324x24/Name/Romeo/Gender/Female/Location/London/Time/13:45/01/06/1990
-        var url = $"{_api.URL.AddPerson}/OwnerId/{ownerId}/Name/{person.Name}" +
-                  $"/Gender/{person.Gender}" +
+        //NOTE: segment order/names must match PersonAPI.AddPerson's compulsory parameter order
+        //      exactly (ownerId, birthTime, personName, gender) - params are parsed positionally by type,
+        //      not by matching key names, so this can't be reordered freely.
+        //http://localhost:7071/api/Calculate/AddPerson/OwnerId/234324x24/Location/London/Time/13:45/01/06/1990/+00:00/PersonName/Romeo/Gender/Female
+        var url = $"{_api.URL.AddPerson}/OwnerId/{ownerId}" +
                   $"/Location/{Tools.RemoveWhiteSpace(person.GetBirthLocation().Name())}" +
-                  $"/Time/{person.BirthHourMinute}/{person.BirthDateMonthYear}";
+                  $"/Time/{person.BirthHourMinute}/{person.BirthDateMonthYear}/{person.BirthTimeZoneString}" +
+                  $"/PersonName/{person.Name}" +
+                  $"/Gender/{person.Gender}";
 
         //get location data from Azure Maps API
         var apiResult = await Tools.ReadFromServerJsonReply(url);

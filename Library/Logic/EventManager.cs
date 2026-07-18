@@ -264,8 +264,12 @@ namespace VedAstro.Library
 
 
             //if control reaches here than failure
-            //if calculator method not found, raise error
-            throw new Exception($"Calculator method not found! : {inputEventName.ToString()}");
+            //NOTE: some HoroscopeName entries (eg. the AshtakavargaYoga family) have no
+            //      implemented calculator anywhere in history - degrade gracefully (skip that
+            //      one prediction) instead of throwing, which would otherwise permanently
+            //      poison HoroscopeDataListStatic's static constructor for the whole process.
+            Console.WriteLine($"WARN: Horoscope calculator method not found, skipping : {inputEventName}");
+            return null;
 
         }
 

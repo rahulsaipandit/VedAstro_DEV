@@ -21,6 +21,11 @@ namespace VedAstro.Library
             MoonAshtakavargaYoga1A,
             MoonAshtakavargaYoga1B,
             MoonAshtakavargaYoga2B,
+            //NOTE: legacy names kept for CalculateHoroscope.cs (restored from pre-existing history);
+            //      not part of the current generated HoroscopeDataListStatic.cs table
+            MoonAshtakavargaYoga,
+            MoonAshtakavargaYoga2,
+            MoonAshtakavargaYoga3,
             MoonAshtakavargaYoga4,
             MoonAshtakavargaYoga6,
             MoonAshtakavargaYoga7,

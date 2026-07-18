@@ -78,7 +78,9 @@
         foreach (var planetName in PlanetName.All9Planets)
         {
             var power = planetStrengthList?.Find(x => x.Item2 == planetName).Item1 ?? 0;
-            var formatted = power - 100; //to make appear within border
+            //NOTE: clamped to 0 - SVG <rect height> rejects negative values outright, which was
+            //throwing off Blazor's WASM render cycle (weak planets can score below the 100 baseline)
+            var formatted = Math.Max(0, power - 100); //to make appear within border
             capitals.Add(planetName, formatted);
         }
 

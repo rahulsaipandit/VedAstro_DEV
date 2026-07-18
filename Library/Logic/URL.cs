@@ -93,13 +93,15 @@ public class URL
 
     //API ENDPOINTS - each is simply "{ApiUrlDirect}/{EndpointName}", callers append their own path segments
 
-    public string GetPersonList => $"{ApiUrlDirect}/GetPersonList";
-    public string AddPerson => $"{ApiUrlDirect}/AddPerson";
-    public string DeletePerson => $"{ApiUrlDirect}/DeletePerson";
-    public string UpdatePerson => $"{ApiUrlDirect}/UpdatePerson";
+    // NOTE: these route through the generic dispatcher (Calculate/{calculatorName}/...) which
+    // reflects the trailing segment onto a method in PersonAPI - the "/Calculate/" prefix is required
+    public string GetPersonList => $"{ApiUrlDirect}/Calculate/GetPersonList";
+    public string AddPerson => $"{ApiUrlDirect}/Calculate/AddPerson";
+    public string DeletePerson => $"{ApiUrlDirect}/Calculate/DeletePerson";
+    public string UpdatePerson => $"{ApiUrlDirect}/Calculate/UpdatePerson";
     public string UpsertLifeEvent => $"{ApiUrlDirect}/UpsertLifeEvent";
     public string GetNewPersonId => $"{ApiUrlDirect}/GetNewPersonId";
-    public string GetPerson => $"{ApiUrlDirect}/GetPerson";
+    public string GetPerson => $"{ApiUrlDirect}/Calculate/GetPerson";
     public string GetPersonImage => $"{ApiUrlDirect}/GetPersonImage";
     public string AddTaskApi => $"{ApiUrlDirect}/AddTask";
 
@@ -113,7 +115,7 @@ public class URL
     public string DeleteChartApi => $"{ApiUrlDirect}/DeleteChart";
 
     public string GetTimezoneOffsetApi => $"{ApiUrlDirect}/Calculate/GeoLocationToTimezone";
-    public string HoroscopePredictions => $"{ApiUrlDirect}/HoroscopePredictions";
+    public string HoroscopePredictions => $"{ApiUrlDirect}/Calculate/HoroscopePredictions";
     public string HoroscopeLLMSearch => $"{ApiUrlDirect}/Calculate/HoroscopeLLMSearch";
     public string GetVisitorList => $"{ApiUrlDirect}/GetVisitorList";
     public string AddMessageApi => $"{ApiUrlDirect}/AddMessage";

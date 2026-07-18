@@ -76,6 +76,8 @@ namespace VedAstro.Library
         /// </summary>
         public bool IsEventOccuring(Time time)
         {
+            //no calculator implementation exists for this entry (see EventManager.GetHoroscopeCalculatorMethod) - skip it
+            if (this.HoroscopeCalculator == null) { return false; }
 
             //do calculation for this event to get prediction data
             var predictionData = this.HoroscopeCalculator(time);
