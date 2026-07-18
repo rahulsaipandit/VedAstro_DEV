@@ -42,6 +42,13 @@
 */
 //Single place for all code related to animating Events Chart SVG, used by light & full viewer
 
+//when running off localhost (local dev), route raw JS API calls to the local Functions host
+//instead of the production API, same intent as the C# side's debug mode in URL.cs
+const VEDASTRO_API_DOMAIN =
+    (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+        ? "http://localhost:7071/api"
+        : "https://vedastroapi.azurewebsites.net/api";
+
 class ID {
     static CursorLineLegendTemplate = `#CursorLineLegendTemplate`;
     static TimeRowLegendTemplate = `#TimeRowLegendTemplate`;
@@ -447,7 +454,7 @@ class EventsChart {
     static async ParseEventFromSVGRect(targetRect, instance) {
 
         //prepare the URL
-        var domain = "https://vedastroapi.azurewebsites.net/api";
+        var domain = VEDASTRO_API_DOMAIN;
 
         //get birth time from main svg element
         var birthTimeAry = instance.$SvgChartElm[0].getAttribute("birthtime").split(" ");
@@ -966,7 +973,7 @@ class EventsChart {
 //make accesible to interop
 window.vedastro = {
     UserId: "UserId" in localStorage ? JSON.parse(localStorage["UserId"]) : "101", //get user id from browser storage
-    ApiDomain: "https://vedastroapi.azurewebsites.net/api",
+    ApiDomain: VEDASTRO_API_DOMAIN,
     Ayanamsa: "Lahiri", //default to
     ChartStyle: "South", //default to South Indian Chart
 };
@@ -1081,10 +1088,7 @@ window.GenerateAstroTable = (settings, inputArguments) => {
  * Helps to create a table with astro data columns
  */
 class AstroTable {
-    //# LOCAL <--> LIVE Switch
-    //APIDomain = "https://vedastroapi.azurewebsites.net/api";
-    APIDomain = "https://vedastroapi.azurewebsites.net/api";
-    //APIDomain = "http://localhost:7071/api";
+    APIDomain = VEDASTRO_API_DOMAIN;
 
     // Class fields
     Ayanamsa = "Lahiri";
@@ -2036,8 +2040,8 @@ class AshtakvargaTable {
 
         //generate table from inputed data
         //get data from API
-        var sarvashtakavargaUrl = `https://vedastroapi.azurewebsites.net/api/Calculate/SarvashtakavargaChart/${inputArguments.TimeUrl}Ayanamsa/${inputArguments.Ayanamsa}`;
-        var bhinnashtakavargaUrl = `https://vedastroapi.azurewebsites.net/api/Calculate/BhinnashtakavargaChart/${inputArguments.TimeUrl}Ayanamsa/${inputArguments.Ayanamsa}`;
+        var sarvashtakavargaUrl = `${VEDASTRO_API_DOMAIN}/Calculate/SarvashtakavargaChart/${inputArguments.TimeUrl}Ayanamsa/${inputArguments.Ayanamsa}`;
+        var bhinnashtakavargaUrl = `${VEDASTRO_API_DOMAIN}/Calculate/BhinnashtakavargaChart/${inputArguments.TimeUrl}Ayanamsa/${inputArguments.Ayanamsa}`;
 
         //get data from API and generate the HTML tables
         await this.GenerateHTMLTableFromAPI(
@@ -2670,9 +2674,14 @@ class ChatInstance {
             //get the main dropdown element
             var $dropdown = $("#TopicListDropdown");
 
+            //if not logged in (UserId still default "101"), people are saved under the
+            //per-browser VisitorId instead (see PersonTools.cs AddPerson), so look up by that
+            var visitorId = "VisitorId" in localStorage ? JSON.parse(localStorage["VisitorId"]) : "101";
+            var ownerId = window.vedastro.UserId === "101" ? visitorId : window.vedastro.UserId;
+
             //DO FOR USER'S SAVED LIST
             window.vedastro.PersonList = await CommonTools.GetAPIPayload(
-                `${window.vedastro.ApiDomain}/GetPersonList/OwnerId/${window.vedastro.UserId}`
+                `${window.vedastro.ApiDomain}/GetPersonList/OwnerId/${ownerId}`
             );
 
             //create a header in the list
@@ -3659,9 +3668,14 @@ class HoroscopeChat {
             //get the main dropdown element
             var $dropdown = $("#PersonListDropdown");
 
+            //if not logged in (UserId still default "101"), people are saved under the
+            //per-browser VisitorId instead (see PersonTools.cs AddPerson), so look up by that
+            var visitorId = "VisitorId" in localStorage ? JSON.parse(localStorage["VisitorId"]) : "101";
+            var ownerId = window.vedastro.UserId === "101" ? visitorId : window.vedastro.UserId;
+
             //DO FOR USER'S SAVED LIST
             window.vedastro.PersonList = await CommonTools.GetAPIPayload(
-                `${window.vedastro.ApiDomain}/GetPersonList/OwnerId/${window.vedastro.UserId}`
+                `${window.vedastro.ApiDomain}/GetPersonList/OwnerId/${ownerId}`
             );
 
             //create a header in the list
@@ -4253,7 +4267,7 @@ class HoroscopeChat {
 
         //if id is add new person, then redirect page to add person site, same tab so refresh onreturn
         if (selectedPersonId == "AddNewPerson") {
-            window.location.href = "http://vedastro.org/Account/Person/Add";
+            window.location.href = "/Account/Person/Add";
             return; //end here
         }
 
