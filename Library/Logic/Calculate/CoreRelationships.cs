@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 
 namespace VedAstro.Library
 {
@@ -351,5 +353,29 @@ namespace VedAstro.Library
         /// </summary>
         public static List<string> HoroscopePredictionNames(Time birthTime) =>
             Tools.GetHoroscopePrediction(birthTime).Select(x => x.Name.ToString()).ToList();
+
+        /// <summary>
+        /// Ask questions to AI astrologer about life horoscope predictions
+        /// </summary>
+        public static async Task<JObject> HoroscopeChat(Time birthTime, string userQuestion, string userId, string sessionId = "") =>
+            await ChatAPI.SendMessageHoroscope(birthTime, userQuestion, sessionId, userId);
+
+        /// <summary>
+        /// Continue an existing horoscope chat session with a follow-up question
+        /// </summary>
+        public static async Task<JObject> HoroscopeFollowUpChat(Time birthTime, string followUpQuestion, string primaryAnswerHash, string userId, string sessionId) =>
+            await ChatAPI.SendMessageHoroscopeFollowUp(birthTime, followUpQuestion, primaryAnswerHash, userId, sessionId);
+
+        /// <summary>
+        /// Record user feedback (thumbs up/down style rating) on a previous horoscope chat answer
+        /// </summary>
+        public static async Task<JObject> HoroscopeChatFeedback(string answerHash, int feedbackScore) =>
+            await ChatAPI.HoroscopeChatFeedback(answerHash, feedbackScore);
+
+        /// <summary>
+        /// Ask questions to AI astrologer about a match-making (compatibility) report
+        /// </summary>
+        public static async Task<JObject> MatchChat(Time maleBirthTime, Time femaleBirthTime, string userQuestion, string chatSession = "") =>
+            await ChatAPI.SendMessageMatch(maleBirthTime, femaleBirthTime, userQuestion, chatSession);
     }
 }

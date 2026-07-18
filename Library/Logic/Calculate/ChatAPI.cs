@@ -33,31 +33,41 @@ namespace VedAstro.Library
     public static class ChatAPI
     {
         //auth details to talk to Azure OpenAI
+        //nullable/guarded because a missing key should not crash the whole class (see AzureTable.cs/AzureCache.cs
+        //for the same pattern) - only the legacy GPT-4 helpers below use this client, not the live chat pipeline
         static Uri azureOpenAIResourceUri = new("https://openaimodelserver.openai.azure.com/");
-        static AzureKeyCredential azureOpenAIApiKey = new(Secrets.Get("AzureOpenAIAPIKey"));
-        static OpenAIClient client = new(azureOpenAIResourceUri, azureOpenAIApiKey);
+        static string? azureOpenAIApiKeyValue = Secrets.AzureOpenAIAPIKey;
+        static OpenAIClient? client = string.IsNullOrEmpty(azureOpenAIApiKeyValue)
+            ? null
+            : new OpenAIClient(azureOpenAIResourceUri, new AzureKeyCredential(azureOpenAIApiKeyValue));
 
         private static List<string> followupQuestions = new List<string> { "Why?", "How?", "Tell me more..." };
 
-        static string accountName = "vedastroapistorage";
         private static string tableName = "ChatMessage";
 
-        static string storageUri = $"https://{accountName}.table.core.windows.net/{tableName}";
-        static string storageAccountKey = Secrets.Get("VedAstroApiStorageKey");
+        //connection-string based so Azurite (UseDevelopmentStorage=true) works for local dev;
+        //nullable because a missing connection string should not crash the whole class
+        private static string? storageConnStr = Secrets.VedAstroApiStorageConnStr;
 
         //save reference for late use
-        private static TableServiceClient tableServiceClient = new TableServiceClient(new Uri(storageUri), new TableSharedKeyCredential(accountName, storageAccountKey));
-        private static TableClient chatTableClient = tableServiceClient.GetTableClient(tableName);
+        private static TableServiceClient? tableServiceClient = string.IsNullOrEmpty(storageConnStr) ? null : new TableServiceClient(storageConnStr);
+        private static TableClient? chatTableClient = MakeTableClient(tableServiceClient, tableName);
 
 
         //------------------------------------
-        //Initialize address table 
+        //Initialize address table
         static string tableNamePresetQuestionEmbeddings = "PresetQuestionEmbeddings";
 
-        static string storageUriPresetQuestionEmbeddings = $"https://{accountName}.table.core.windows.net/{tableNamePresetQuestionEmbeddings}";
         //save reference for late use
-        private static TableServiceClient presetQuestionEmbeddingsServiceClient = new TableServiceClient(new Uri(storageUriPresetQuestionEmbeddings), new TableSharedKeyCredential(accountName, storageAccountKey));
-        private static TableClient presetQuestionEmbeddingsTableClient = presetQuestionEmbeddingsServiceClient.GetTableClient(tableNamePresetQuestionEmbeddings);
+        private static TableServiceClient? presetQuestionEmbeddingsServiceClient = string.IsNullOrEmpty(storageConnStr) ? null : new TableServiceClient(storageConnStr);
+        private static TableClient? presetQuestionEmbeddingsTableClient = MakeTableClient(presetQuestionEmbeddingsServiceClient, tableNamePresetQuestionEmbeddings);
+
+        private static TableClient? MakeTableClient(TableServiceClient? serviceClient, string forTableName)
+        {
+            var tableClient = serviceClient?.GetTableClient(forTableName);
+            tableClient?.CreateIfNotExists();
+            return tableClient;
+        }
 
 
 
@@ -173,13 +183,10 @@ namespace VedAstro.Library
             var aiReply = await AnswerFollowUpHoroscopeQuestion_CohereCommandRPlus(primaryQuestion,
                  primaryAnswer, horoscopePredictions, followUpQuestion);
 
-            //log the AI reply
-            var textHash = SaveToTable(new ChatMessageEntity(sessionId, birthTime, aiReply, "AI", userId)).RowKey;
-
             var noFollowUpAnyMore = new List<string>(); //no follow up to a follow-up
 
-            throw new NotImplementedException();
-            // return PackageReply("", aiReply, textHash, noFollowUpAnyMore, sessionId);
+            //note: PackageReply saves the AI reply to the log itself
+            return PackageReply(birthTime, userId, followUpQuestion, aiReply, noFollowUpAnyMore, sessionId);
         }
 
         public static async Task<JObject> HoroscopeChatFeedback(string answerHash, int feedbackScore)
@@ -219,10 +226,18 @@ namespace VedAstro.Library
             var sameSessionId = recordFound.PartitionKey; //use back same session ID
             var noFeedbackCommand = new List<string>() { "noFeedback" }; //stop the feedback on feedback loop
             var randomHash = Tools.GenerateId(10); //has to be unique else will interfere with client rendering
-            throw new NotImplementedException();
 
-            //return PackageReply("", aiReply, randomHash, noFollowUpAnyMore, sameSessionId, aiHtmlReply, noFeedbackCommand);
-
+            //note: not routed through PackageReply - this reply isn't tied to a birth chart/question,
+            //so there's no birthTime to log it under; built directly in the same shape instead
+            return new JObject
+            {
+                { "SessionId", sameSessionId },
+                { "Text", aiReply },
+                { "TextHtml", aiHtmlReply },
+                { "TextHash", randomHash },
+                { "FollowUpQuestions", new JArray(noFollowUpAnyMore) },
+                { "Commands", new JArray(noFeedbackCommand) }
+            };
         }
 
         public static async Task<JObject> SendMessageHoroscope2(Time birthTime, string userQuestion, string sessionId, string userId)
@@ -271,10 +286,8 @@ namespace VedAstro.Library
             //#2 answer question about Horoscope
             replyText = await IsHoroscopeAstrology(birthTime, userQuestion);
 
-            throw new NotImplementedException();
-
-            //pack nicely and send to user
-            //return PackageReply(userQuestion, replyText, textHash, followupQuestions, sessionId);
+            //pack nicely and send to user (PackageReply saves the AI reply to the log itself)
+            return PackageReply(birthTime, userId, userQuestion, replyText, followupQuestions, sessionId);
         }
 
         public static int GetLastMessageNumberNumberFromSessionId(string sessionId)
@@ -916,7 +929,8 @@ namespace VedAstro.Library
             var settings = new PredictionSettings
             {
                 ServerUrl = "https://Mistral-small-xcvuv-serverless.westus.inference.ai.azure.com/v1/chat/completions",
-                ApiKey = Secrets.Get("azureMistralSmallAPIKey"),
+                //TryGet: a missing cloud key is fine when LOCAL_LLM_BASE_URL routes this to a local LLM instead (see ProcessPrediction)
+                ApiKey = Secrets.TryGet("azureMistralSmallAPIKey"),
                 MaxTokens = 600,
                 Temperature = 0.5,
                 TopP = 0.2,
@@ -948,7 +962,8 @@ namespace VedAstro.Library
             var settings = new PredictionSettings
             {
                 ServerUrl = "https://Cohere-command-r-plus-rusng-serverless.westus.inference.ai.azure.com/v1/chat/completions",
-                ApiKey = Secrets.Get("azureCohereCommandRPlusAPIKey"),
+                //TryGet: a missing cloud key is fine when LOCAL_LLM_BASE_URL routes this to a local LLM instead (see ProcessPrediction)
+                ApiKey = Secrets.TryGet("azureCohereCommandRPlusAPIKey"),
                 MaxTokens = 600,
                 Temperature = 0.5,
                 TopP = 0.5,
@@ -1726,7 +1741,8 @@ namespace VedAstro.Library
             var settings = new PredictionSettings
             {
                 ServerUrl = "https://Mistral-small-xcvuv-serverless.westus.inference.ai.azure.com/v1/chat/completions",
-                ApiKey = Secrets.Get("azureCohereCommandRPlusAPIKey"),
+                //TryGet: a missing cloud key is fine when LOCAL_LLM_BASE_URL routes this to a local LLM instead (see ProcessPrediction)
+                ApiKey = Secrets.TryGet("azureCohereCommandRPlusAPIKey"),
                 MaxTokens = 8196,
                 Temperature = 0.5,
                 TopP = 0.5,
@@ -1799,19 +1815,55 @@ namespace VedAstro.Library
         private static async Task<string> ProcessPrediction(PredictionSettings settings)
         {
             var handler = CreateHttpClientHandler();
-            var requestBody = CreateRequestBody(settings.SysMessage, settings.MaxTokens, settings.Temperature, settings.TopP);
+
+            string localModel = null;
+            TimeSpan? localTimeout = null;
+#if DEBUG
+            var localLlmBase = Environment.GetEnvironmentVariable("LOCAL_LLM_BASE_URL");
+            if (!string.IsNullOrEmpty(localLlmBase))
+            {
+                settings.ServerUrl = localLlmBase.TrimEnd('/') + "/chat/completions";
+                settings.ApiKey = Environment.GetEnvironmentVariable("LOCAL_LLM_API_KEY") ?? "local-llm";
+                localModel = Environment.GetEnvironmentVariable("LOCAL_LLM_MODEL");
+                //local reasoning models are much slower than cloud endpoints and can burn most of
+                //their token budget on hidden "reasoning_content" before ever emitting a real answer -
+                //the default HttpClient.Timeout of 100s is routinely too short for this
+                localTimeout = TimeSpan.FromSeconds(300);
+                Console.WriteLine($"[ChatAPI] DEBUG: routing LLM call to {settings.ServerUrl}");
+            }
+#endif
+
+            var requestBody = CreateRequestBody(settings.SysMessage, settings.MaxTokens, settings.Temperature, settings.TopP, localModel);
             var content = new StringContent(requestBody);
             content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
             using (var client = new HttpClient(handler))
             {
+                if (localTimeout.HasValue) { client.Timeout = localTimeout.Value; }
                 HttpResponseMessage response = await PostRequestAsync(client, content, settings.ServerUrl, settings.ApiKey);
                 return await ProcessResponseAsync(response);
             }
         }
 
-        private static string CreateRequestBody(object[] sysMessage, double maxTokens, double temperature, double topP)
+        private static string CreateRequestBody(object[] sysMessage, double maxTokens, double temperature, double topP, string model = null)
         {
+            //local OpenAI-compatible servers (e.g. Ollama) require "model" in the body to pick which loaded model answers;
+            //Azure's serverless endpoints bind the model via the URL itself, so this is only added when routed locally
+            if (!string.IsNullOrEmpty(model))
+            {
+                var localRequestBodyObject = new
+                {
+                    model = model,
+                    messages = sysMessage,
+                    max_tokens = maxTokens,
+                    temperature = temperature,
+                    top_p = topP,
+                    safe_prompt = "false"
+                };
+
+                return JsonConvert.SerializeObject(localRequestBodyObject);
+            }
+
             var requestBodyObject = new
             {
                 messages = sysMessage,

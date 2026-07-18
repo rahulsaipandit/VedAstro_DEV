@@ -13,5 +13,6 @@ namespace VedAstro.Library
         public static string? VedAstroCentralStorageConnStr => Environment.GetEnvironmentVariable("VedAstroCentralStorageConnStr");
         public static string? AzureGeoLocationStorageConnStr => Environment.GetEnvironmentVariable("AzureGeoLocationStorageConnStr");
         public static string? AutoEmailerConnectString => Environment.GetEnvironmentVariable("AutoEmailerConnectString");
+        public static string? AzureOpenAIAPIKey => Environment.GetEnvironmentVariable("AzureOpenAIAPIKey");
     }
 }

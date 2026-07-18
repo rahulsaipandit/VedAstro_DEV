@@ -28,5 +28,16 @@ namespace VedAstro.Library
             throw new Exception($"The key --> '{key}' is missing sweetheart! Contact us for a testing Key --> vedastro.org/Contact.html");
             return "";
         }
+
+        /// <summary>
+        /// Same lookup as Get(), but returns null instead of throwing when the key is missing.
+        /// For call sites where a missing cloud key should degrade gracefully (e.g. local dev routes
+        /// the request to a local LLM before the key is ever used) rather than crash the caller.
+        /// </summary>
+        public static string? TryGet(string key)
+        {
+            var field = typeof(Secrets).GetField(key, BindingFlags.Static | BindingFlags.NonPublic);
+            return field != null ? (string)field.GetValue(null) : null;
+        }
     }
 }

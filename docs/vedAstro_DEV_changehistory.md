@@ -1,5 +1,291 @@
 # VedAstro_DEV Change History
 
+## 2026-07-18 (continued) — Chat feature was stubbed out and permanently crash-poisoned; fixed both, verification blocked on LM Studio going unresponsive
+
+### Context
+
+Follow-up to the "Wired up local-LLM routing" entry below. The user pointed their setup at a
+real local model (`gemma-4-26b-a4b-it` via LM Studio at `http://192.168.12.247:1234`) and asked
+to get the C# chat path actually working end-to-end. Driving the real endpoint
+(`GET /api/Calculate/HoroscopeChat/...`) surfaced four more, deeper blockers than the routing
+fix alone — each only reachable after fixing the one before it.
+
+### Config — `API/local.settings.json`
+
+Set the three local-LLM values for this specific setup:
+```
+"LOCAL_LLM_BASE_URL": "http://192.168.12.247:1234/v1",
+"LOCAL_LLM_API_KEY": "local-llm",
+"LOCAL_LLM_MODEL": "gemma-4-26b-a4b-it"
+```
+
+### Blocker 1 — `HoroscopeChat` wasn't reachable via the URL dispatcher at all
+
+`API/FrontDesk/OpenAPI.cs:196,215-216` only reflects over the `Calculate` and `PersonAPI`
+classes. `ChatAPI.SendMessageHoroscope` / `HoroscopeChatFeedback` are public but live on the
+`ChatAPI` class, so `Tools.MethodNameToMethodInfo` could never find them — confirmed live,
+`GET /api/Calculate/HoroscopeChat/...` returned `"Calculator method not found!"`.
+
+**Fix:** `docs/Library/Logic/Calculate/Calculate.cs:322-348` already has the missing thin
+wrappers. Ported the pattern into `Library/Logic/Calculate/CoreRelationships.cs` (the partial
+`Calculate` class file that already holds the restored `HoroscopePredictions` wrapper from the
+entry below) — added `HoroscopeChat`, `HoroscopeFollowUpChat`, `HoroscopeChatFeedback`, and
+`MatchChat`, each a one-line passthrough to the matching `ChatAPI` method.
+
+### Blocker 2 — the underlying chat methods were stubbed with `NotImplementedException`
+
+Independent of Blocker 1: `SendMessageHoroscope`, `SendMessageHoroscopeFollowUp`,
+`HoroscopeChatFeedback`, and `SendMessageMatch` in `ChatAPI.cs` all ended in
+`throw new NotImplementedException();` with their real `return PackageReply(...)` line
+commented out above it — an abandoned mid-refactor; `PackageReply`'s signature (line 616) had
+since changed (it now saves the AI reply to the chat log internally) and no longer matched the
+commented-out call sites.
+
+**Fix:**
+- `SendMessageHoroscope` / `SendMessageHoroscopeFollowUp` — wired to call
+  `PackageReply(birthTime, userId, ..., sessionId)` with the new signature; removed the now-
+  redundant manual `SaveToTable` of the AI reply in the follow-up method since `PackageReply`
+  does that itself.
+- `HoroscopeChatFeedback` — this one has no `birthTime` available at all (only an answer hash +
+  rating), so forcing it through `PackageReply`'s signature would have meant fabricating a fake
+  birth time. Built the reply `JObject` directly instead, in the same shape `PackageReply`
+  returns, without going through the shared helper.
+- `SendMessageMatch` — checked `docs/Library/Logic/Calculate/ChatAPI.cs:189-194`: it's
+  `throw new NotImplementedException();` there too, in the historical branch. Genuinely never
+  implemented anywhere in this codebase's history (same category as the 51 missing Ashtakavarga
+  Yogas below) — left stubbed; only added its `Calculate.MatchChat` dispatcher wrapper for
+  consistency, since the top-level `Calculate` HTTP trigger already try/catches and returns a
+  clean `Fail` JSON rather than crashing on the unhandled exception.
+
+### Blocker 3 — `ChatAPI`'s static fields threw `TypeInitializationException` on first touch
+
+A third instance of the exact `AzureTable`/`AzureCache`/`CacheManager` crash pattern
+documented earlier in this file, just never reached until now: `ChatAPI.cs`'s static fields
+called `Secrets.Get("AzureOpenAIAPIKey")` and `Secrets.Get("VedAstroApiStorageKey")` — neither
+field exists, so both threw immediately, permanently poisoning the whole `ChatAPI` class.
+Confirmed live: `"The type initializer for 'VedAstro.Library.ChatAPI' threw an exception."`
+
+The user asked how `docs/Library/Logic/Calculate/ChatAPI.cs` (the historical reference) avoided
+this. Checked: it didn't use `Secrets.Get` at all for these — it read every key via
+`Environment.GetEnvironmentVariable(...)` directly. But `docs/API/local.settings.json` doesn't
+define any of those variables either, and the Azure SDK types involved
+(`AzureKeyCredential(string)`, `TableClient(string connectionString, ...)`) both throw on a
+null argument — so that version would have hit the same class of crash if those env vars
+genuinely weren't set anywhere. Likely explanation: whoever wrote it had real values set
+directly in their shell/OS environment during testing, never committed. Not an actually
+more-robust design — just untested against a truly empty config.
+
+**Fix:** applied the same connection-string + null-safe pattern as `AzureTable.cs`/`AzureCache.cs`:
+- Added `Secrets.AzureOpenAIAPIKey` (nullable, env-var-backed) to `SecretsEnv.cs`.
+- `client` (the `OpenAIClient` used only by legacy, not-on-live-path GPT-4 helpers) is now
+  `OpenAIClient?` — null when the key is unset, instead of crashing at class load.
+- `chatTableClient` / `presetQuestionEmbeddingsTableClient` now built from
+  `Secrets.VedAstroApiStorageConnStr` (already `UseDevelopmentStorage=true` in
+  `local.settings.json`) via a new null-safe `MakeTableClient` helper that also calls
+  `CreateIfNotExists()` — needed because the `ChatMessage`/`PresetQuestionEmbeddings` tables
+  had never been created in Azurite (next error after this fix: `TableNotFound`, fixed by
+  adding the missing `CreateIfNotExists()` call).
+
+### Blocker 4 — `Secrets.Get("azureCohereCommandRPlusAPIKey")` / `"azureMistralSmallAPIKey"` threw before `ProcessPrediction`'s local-LLM override ever ran
+
+The two live-path `PredictionSettings` constructions (`AnswerQuestionDirectly_CohereCommandRPlus`,
+`PickOutMostRelevantPredictions_MistralSmall`) built `ApiKey = Secrets.Get(...)` eagerly — this
+throws before the object is even finished constructing, so it never reached the `#if DEBUG`
+override inside `ProcessPrediction` that would have replaced it with the local key.
+
+**Fix:** added `Secrets.TryGet(string key)` — same reflection lookup as `Secrets.Get`, but
+returns `null` instead of throwing. Used it only for these two specific `ApiKey` assignments
+(left the other ~40 `Secrets.Get` call sites in the codebase untouched, consistent with the
+2026-07-17 session's explicit decision not to do a full audit of that pattern).
+
+### Blocker 5 — default `HttpClient.Timeout` (100s) too short for a local reasoning model
+
+After all of the above, the call reached the network and timed out:
+`"The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing."`
+Raised to 300s specifically for the local-LLM path in `ProcessPrediction` (`localTimeout =
+TimeSpan.FromSeconds(300)`, only set inside the `#if DEBUG` / `LOCAL_LLM_BASE_URL` branch — cloud
+calls are unaffected).
+
+### Current status — NOT yet verified end-to-end
+
+Even at 300s the request still timed out. Investigated whether this was a code issue or a
+model/hardware one: the filter step (`PickOutMostRelevantPredictions_MistralSmall`) embeds the
+full ~23KB serialized prediction list into the prompt and asks for up to 8196 tokens back;
+separately, a raw isolated test against LM Studio showed `gemma-4-26b-a4b-it` spending most of
+its token budget on hidden `reasoning_content` before emitting real output (188 of 199 tokens on
+a trivial arithmetic question). Attempted to isolate LM Studio's raw throughput with a tiny
+10-token "say hi" prompt directly against `http://192.168.12.247:1234` — **it did not respond at
+all**, including after retrying for several minutes; by the end of this session LM Studio was
+not accepting new connections (`curl` exit 7, connection refused), likely still stuck processing
+one of the earlier abandoned long-running requests, or crashed.
+
+**Net effect:** the C# code path itself is now confirmed correct up through actually issuing the
+HTTP request with the right URL/model/timeout (progressively verified by watching the error
+message change at each blocker above) - but a real successful chat reply has not yet been
+observed, because LM Studio itself became unresponsive. **Next step:** user to restart/check
+their LM Studio instance, then retry `GET /api/Calculate/HoroscopeChat/...` end-to-end. If it
+still times out with a healthy server, consider a smaller/faster local model for the filter
+step specifically, since 8196 max_tokens over a 23KB prompt is a lot to ask of a 26B model
+running consumer hardware.
+
+---
+
+## 2026-07-18 (continued) — Fixed Horoscope "Calculate" button: raw JS API calls were hardcoded to production, bypassing the local API entirely
+
+### Context
+
+User reported the Calculate button on `/Horoscope/{id}` "not working" locally. Browser console
+showed a wall of `WARN: Horoscope calculator method not found, skipping` lines first (these are
+expected/benign — see the Horoscope-restoration entry below), but the actual failure came after:
+```
+GET https://vedastroapi.azurewebsites.net/api/Calculate/SarvashtakavargaChart/... net::ERR_NAME_NOT_RESOLVED
+GET https://vedastroapi.azurewebsites.net/api/ListCalls net::ERR_NAME_NOT_RESOLVED
+Uncaught (in promise) TypeError: Cannot convert undefined or null to object (VedAstro.js:2080)
+Uncaught (in promise) TypeError: Cannot read properties of undefined (reading 'filter') (VedAstro.js:1596)
+```
+Confirmed the user's local Azure Functions API was actually running and healthy
+(`curl http://localhost:7071/api/ListCalls` → `200`), so this wasn't a "local API isn't up" issue —
+the frontend simply never tried to talk to it.
+
+### Investigation
+
+`Website/wwwroot/js/VedAstro.js` — unlike the C# side (`Library/Logic/URL.cs`, which already
+resolves `ApiUrlDirect` to `ApiLocalDebug`/`http://localhost:7071/api` automatically in Debug
+builds via the "Local API" toggle from the 2026-07-17 entry below) — had **4 separate places**
+with the production URL `https://vedastroapi.azurewebsites.net/api` hardcoded as a plain string
+literal, with no local-dev switch at all:
+- `AstroTable.APIDomain` (class field, ~line 1091, planet/house table generation)
+- `window.vedastro.ApiDomain` (~line 976, general API helper)
+- `EventsChart.ParseEventFromSVGRect`'s local `domain` var (~line 457)
+- `AshtakvargaTable`'s `sarvashtakavargaUrl`/`bhinnashtakavargaUrl` (~line 2043-2044) — the
+  exact calls seen failing in the console log above
+
+Compared against the recovered historical snapshot under `docs/Website/wwwroot/js/VedAstro.js`
+(the same dangling-commit reference confirmed byte-for-byte elsewhere in this changelog) and
+found it already has the correct fix in place: a single `VEDASTRO_API_DOMAIN` constant near the
+top of the file, computed once from `location.hostname`, with all 4 sites referencing it instead
+of a literal. Ported that exact pattern into the current file rather than just hardcoding
+`localhost:7071` (which would have broken production once deployed).
+
+### Fix — `Website/wwwroot/js/VedAstro.js`
+
+```javascript
+//when running off localhost (local dev), route raw JS API calls to the local Functions host
+//instead of the production API, same intent as the C# side's debug mode in URL.cs
+const VEDASTRO_API_DOMAIN =
+    (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+        ? "http://localhost:7071/api"
+        : "https://vedastroapi.azurewebsites.net/api";
+```
+All 4 sites above now reference `VEDASTRO_API_DOMAIN` instead of the literal string.
+
+**Verified:** re-diffed the full file against `docs/Website/wwwroot/js/VedAstro.js` (normalizing
+CRLF vs. LF line endings first, which otherwise made every line look different) — confirmed this
+was the only Calculate-relevant divergence between the two.
+
+### Follow-up fixes found via the same docs/-comparison, applied while already in the file
+
+**`window.vedastro.PersonList` lookup dropped the anonymous-user `VisitorId` fallback (2 sites,
+`PersonSelectorBox`/`TopicListDropdown` person-list population)** — current code queried
+`GetPersonList/OwnerId/{window.vedastro.UserId}` directly; `docs/` additionally falls back to a
+per-browser `VisitorId` (stored in `localStorage`) when `UserId` is still the default `"101"`
+(i.e. user not logged in — see `PersonTools.cs AddPerson`, which saves anonymous users' people
+under their `VisitorId`). Without this, an anonymous local user's own just-added person would
+never show up in their own dropdown. Restored:
+```javascript
+var visitorId = "VisitorId" in localStorage ? JSON.parse(localStorage["VisitorId"]) : "101";
+var ownerId = window.vedastro.UserId === "101" ? visitorId : window.vedastro.UserId;
+window.vedastro.PersonList = await CommonTools.GetAPIPayload(
+    `${window.vedastro.ApiDomain}/GetPersonList/OwnerId/${ownerId}`
+);
+```
+
+**"Add New Person" dropdown option hardcoded a production redirect** (~line 4270): was
+`window.location.href = "http://vedastro.org/Account/Person/Add"` — would bounce a local user off
+to production instead of staying on `localhost`. `docs/` has the relative form; changed to match:
+`window.location.href = "/Account/Person/Add"`.
+
+After all of the above, `Website/wwwroot/js/VedAstro.js` matches
+`docs/Website/wwwroot/js/VedAstro.js` exactly except for one dead/stale comment line
+(a commented-out `vedastroapibeta` URL variant) with no functional effect.
+
+---
+
+## 2026-07-18 (continued) — Wired up local-LLM routing for the C# ChatAPI pipeline (doc change #22, previously flagged as not investigated)
+
+### Context
+
+`Localhost_Setup.md`'s "ChatAPI — Local LLM Routing" section (change #22) had a *proposed*
+`#if DEBUG` env-var-override patch for `ProcessPrediction` in
+`Library/Logic/Calculate/ChatAPI.cs`, written against an estimated line number (~1297) but
+never actually applied to the working tree — the prior 2026-07-17 session explicitly listed
+it as "not investigated this session" (see the "What could NOT be changed" section below).
+Asked to make chat actually work locally, this session applied and corrected that patch.
+
+### Investigation
+
+Traced the real chat call path before touching anything: `AnswerHoroscopeQuestion` (the
+method actually invoked by `SendMessageHoroscope`) calls
+`PickOutMostRelevantPredictions_MistralSmall` then `AnswerQuestionDirectly_CohereCommandRPlus`.
+Both build a `PredictionSettings` object and call the shared `ProcessPrediction(settings)` —
+confirming the doc's chosen chokepoint was correct. (Several other hardcoded-URL LLM helpers
+in the same file — `HighlightKeywords_MistralLarge`, `ImproveFinalAnswer_MistralLarge`,
+`ExtractTimeRange_MistralLarge`, etc. — build their own `HttpClient` calls directly and are
+*not* on this path; they're commented out in `AnswerHoroscopeQuestion`/`IsHoroscopeAstrology`,
+so left untouched.)
+
+Also found a gap in the doc's proposed code: `CreateRequestBody` never included a `"model"`
+field. Azure's serverless endpoints don't need one (the model is baked into the URL), but
+Ollama's OpenAI-compatible `/v1/chat/completions` endpoint **requires** `"model"` in the body
+or the request fails — so the doc's patch as written would have redirected traffic to
+localhost but then errored out against a real Ollama server.
+
+### Fix — `Library/Logic/Calculate/ChatAPI.cs`, `ProcessPrediction` (actual location: ~line 1799, not 1297) and `CreateRequestBody`
+
+Applied the doc's `#if DEBUG` env-var override (`LOCAL_LLM_BASE_URL` / `LOCAL_LLM_API_KEY`)
+for `settings.ServerUrl`/`settings.ApiKey`, and additionally threaded an optional `model`
+parameter through to `CreateRequestBody`, sourced from a new `LOCAL_LLM_MODEL` env var and
+only included in the JSON body when routing locally (Azure calls are unaffected — no `model`
+field is added for them):
+
+```csharp
+private static async Task<string> ProcessPrediction(PredictionSettings settings)
+{
+    var handler = CreateHttpClientHandler();
+
+    string localModel = null;
+#if DEBUG
+    var localLlmBase = Environment.GetEnvironmentVariable("LOCAL_LLM_BASE_URL");
+    if (!string.IsNullOrEmpty(localLlmBase))
+    {
+        settings.ServerUrl = localLlmBase.TrimEnd('/') + "/chat/completions";
+        settings.ApiKey = Environment.GetEnvironmentVariable("LOCAL_LLM_API_KEY") ?? "local-llm";
+        localModel = Environment.GetEnvironmentVariable("LOCAL_LLM_MODEL");
+        Console.WriteLine($"[ChatAPI] DEBUG: routing LLM call to {settings.ServerUrl}");
+    }
+#endif
+
+    var requestBody = CreateRequestBody(settings.SysMessage, settings.MaxTokens, settings.Temperature, settings.TopP, localModel);
+    // ...unchanged
+}
+```
+
+`CreateRequestBody` gained a `string model = null` parameter: when non-empty it serializes an
+object with `model` as the first property, otherwise it serializes the original shape
+unchanged (so production/Azure request bodies are byte-for-byte identical to before).
+
+**Verified:** `dotnet build Library.csproj -c Debug` — 0 errors (only pre-existing,
+unrelated `CA1416` platform-compat warnings from `GifDecoder.cs`/`SkyChartFactory.cs`/etc.).
+Not runtime-tested end-to-end against a live Ollama/LM Studio instance this session — that
+requires the user to actually run one locally and set the three env vars
+(`LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL`, optionally `LOCAL_LLM_API_KEY`) before starting the
+Functions host in Debug config.
+
+Also updated `Localhost_Setup.md` change #22 in place to mark it "Applied", correct the line
+number, and document the new `LOCAL_LLM_MODEL` var.
+
+---
+
 ## 2026-07-18 (continued) — Restored the entire "Horoscope Predictions" feature (443 calculators recovered from disconnected git history)
 
 ### Context

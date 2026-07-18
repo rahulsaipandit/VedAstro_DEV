@@ -1077,25 +1077,29 @@ Without valid `AzureMetaLlama3APIKey` / `AzureMistralSmallAPIKey` / `AzureCohere
 
 #### The fix
 
-Override `settings.ServerUrl` and `settings.ApiKey` inside `ProcessPrediction` when a `LOCAL_LLM_BASE_URL` env var is set. Because local LLM servers (Ollama, LM Studio) speak the OpenAI chat-completions wire format, the same JSON request body works without any other changes.
+Override `settings.ServerUrl` and `settings.ApiKey` inside `ProcessPrediction` when a `LOCAL_LLM_BASE_URL` env var is set. Because local LLM servers (Ollama, LM Studio) speak the OpenAI chat-completions wire format, the same JSON request body works — with one addition: Ollama's `/v1/chat/completions` requires a `"model"` field in the body (Azure's serverless endpoints don't, since the model is baked into the URL), so `CreateRequestBody` now accepts an optional model name sourced from `LOCAL_LLM_MODEL` and only includes it when routing locally.
+
+**Applied** — this is now live in the codebase (actual location is `ProcessPrediction`, ~line 1799, not 1297 as originally estimated):
 
 ```csharp
-// Library/Logic/Calculate/ChatAPI.cs — ProcessPrediction (~line 1297)
+// Library/Logic/Calculate/ChatAPI.cs — ProcessPrediction (~line 1799)
 private static async Task<string> ProcessPrediction(PredictionSettings settings)
 {
     var handler = CreateHttpClientHandler();
 
+    string localModel = null;
 #if DEBUG
     var localLlmBase = Environment.GetEnvironmentVariable("LOCAL_LLM_BASE_URL");
     if (!string.IsNullOrEmpty(localLlmBase))
     {
         settings.ServerUrl = localLlmBase.TrimEnd('/') + "/chat/completions";
         settings.ApiKey = Environment.GetEnvironmentVariable("LOCAL_LLM_API_KEY") ?? "local-llm";
+        localModel = Environment.GetEnvironmentVariable("LOCAL_LLM_MODEL");
         Console.WriteLine($"[ChatAPI] DEBUG: routing LLM call to {settings.ServerUrl}");
     }
 #endif
 
-    var requestBody = CreateRequestBody(settings.SysMessage, settings.MaxTokens, settings.Temperature, settings.TopP);
+    var requestBody = CreateRequestBody(settings.SysMessage, settings.MaxTokens, settings.Temperature, settings.TopP, localModel);
     var content = new StringContent(requestBody);
     content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
@@ -1106,6 +1110,8 @@ private static async Task<string> ProcessPrediction(PredictionSettings settings)
     }
 }
 ```
+
+Set `LOCAL_LLM_BASE_URL` (e.g. `http://localhost:11434/v1` for Ollama, `http://localhost:1234/v1` for LM Studio) and, for Ollama, `LOCAL_LLM_MODEL` (e.g. `llama3`) as environment variables before running the Azure Functions host in `DEBUG` config. Confirmed: the live chat pipeline (`AnswerHoroscopeQuestion` → `PickOutMostRelevantPredictions_MistralSmall` + `AnswerQuestionDirectly_CohereCommandRPlus`) both build a `PredictionSettings` and call `ProcessPrediction`, so this one chokepoint covers the actual `SendMessageHoroscope` flow. Other Mistral/Llama helper methods in this file (`HighlightKeywords_MistralLarge`, `ImproveFinalAnswer_MistralLarge`, etc.) build their own `HttpClient` calls directly and are NOT on this path — they're currently unused by the live pipeline (commented out in `AnswerHoroscopeQuestion`/`IsHoroscopeAstrology`), so they were left untouched.
 
 **Why `#if DEBUG` and not a runtime flag:** The `#if DEBUG` block is compiled out of Release builds entirely, so there is zero runtime cost and no accidental local-routing in production. The same pattern is already used throughout the codebase for geocoding and timezone providers.
 
