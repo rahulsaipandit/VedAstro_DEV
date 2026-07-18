@@ -46,5 +46,9 @@ namespace VedAstro.Library
 
         /// <summary>Local-disk chart image cache (replaces AzureCache.cs's blob container).</summary>
         public static IChartImageCache ChartCache { get; set; }
+
+        // ---- Chat (ChatAPI.cs) ----
+        public static IChatMessageRepository ChatMessage { get; set; }
+        public static IPresetQuestionEmbeddingsRepository PresetQuestionEmbeddings { get; set; }
     }
 }

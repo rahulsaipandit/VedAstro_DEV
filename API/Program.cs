@@ -88,6 +88,10 @@ namespace API
             builder.Services.AddSingleton<IIpAddressGeoLocationMetadataRepository, IpAddressGeoLocationMetadataRepository>();
             builder.Services.AddSingleton<ISearchAddressGeoLocationRepository, SearchAddressGeoLocationRepository>();
 
+            // Chat (ChatAPI.cs) - history/feedback rating + experimental preset-question search index
+            builder.Services.AddSingleton<IChatMessageRepository, ChatMessageRepository>();
+            builder.Services.AddSingleton<IPresetQuestionEmbeddingsRepository, PresetQuestionEmbeddingsRepository>();
+
             // same lazy-resolution reasoning as the connection string above - resolved from DI
             // when the singleton is first requested (after the host is fully built), not captured
             // from builder.Configuration this early, so test hosts can override ChartCacheDirectory.
@@ -170,6 +174,8 @@ namespace API
             Repositories.IpAddressGeoLocationMetadata = services.GetRequiredService<IIpAddressGeoLocationMetadataRepository>();
             Repositories.SearchAddressGeoLocation = services.GetRequiredService<ISearchAddressGeoLocationRepository>();
             Repositories.ChartCache = services.GetRequiredService<IChartImageCache>();
+            Repositories.ChatMessage = services.GetRequiredService<IChatMessageRepository>();
+            Repositories.PresetQuestionEmbeddings = services.GetRequiredService<IPresetQuestionEmbeddingsRepository>();
 
             // ---- Route registration (one Map*Endpoints per old API/FrontDesk/*.cs file) ----
             app.MapGeneralEndpoints();

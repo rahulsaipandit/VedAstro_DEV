@@ -124,23 +124,70 @@ rather than being done as an upfront separate pass).
 
 ### Known remaining items (not silently dropped)
 
-- **`LibraryTests`** — left broken by explicit decision: ~30+ tests
-  reference astrology calculation methods (Chara Dasa, several Ashtakavarga
-  yogas, eclipses, Ishta/Kashta scores, etc.) that don't exist in `Library`,
-  tracing back to old abandoned "WIP" commits. Unrelated to this migration;
-  implementing them would mean fabricating unverified domain math.
-- **Chat message history** (`ChatMessage`/`PresetQuestionEmbeddings`
-  persistence in `ChatAPI.cs`) stays an intentional no-op stub — out of
-  scope per an earlier decision. `HoroscopeFollowUpChat`/
-  `HoroscopeChatFeedback` can't fully succeed even with LM Studio running.
+- **`LibraryTests`** — now compiles (0 errors, down from 112). The ~30
+  missing astrology methods it referenced (Chara Dasa, 7 Ashtakavarga yogas,
+  eclipses, Ishta/Kashta scores, Fortuna/Destiny points, Tajika date, Pancha
+  Pakshi, etc.) traced back to old abandoned "WIP" commits, unrelated to this
+  migration - each was implemented best-effort in `Library/Logic/Calculate/CalculateJaimini.cs`
+  and `Library/Logic/Calculate/CoreMiscExtra.cs` (plus 7 Ashtakavarga yogas in
+  `CalculateHoroscope.cs`), every one documented inline as "missing prior to
+  this fix, best-effort, verify against a second source".
+
+  Also found and fixed a real, pre-existing, broadly-impactful bug this
+  effort surfaced: `Calculate.LongitudeToLMTOffset` (`Library/Logic/Calculate/CoreTime.cs`)
+  computed `TimeSpan.FromHours(longitudeDeg / 15.0)`, which is fractional to
+  the sub-second for almost any real-world longitude (e.g. Bangalore's
+  77.5946° -> 5h 10m 22.69s) - every caller feeds that straight into
+  `DateTimeOffset.ToOffset(...)`/its constructor (`Time.StdToLmt`,
+  `CoreTime.LmtToStd`, etc.), which requires whole-minute offsets, so this
+  threw `"Offset must be specified in whole minutes"` for essentially any
+  birth location, not a test-data edge case (`GeoLocation.Bangalore`, the
+  fixture nearly every test in this project already used, triggers it too).
+  It went unnoticed because (a) `LibraryTests` never compiled, so its tests
+  never ran, and (b) in the live API, `OpenAPI.cs`'s reflection dispatcher
+  catches all exceptions into a generic `Fail` JSON envelope
+  (`APITools.FailMessageJson`), so any endpoint touching `SunriseTime`
+  (Muhurtha timing, `BirthYama`, `TajikaDateForYear`, etc.) for a non-"nice"
+  longitude would just silently fail rather than crash visibly. Fixed by
+  rounding the offset to the nearest whole minute at the source (the
+  sub-minute precision was never actually observable anyway - LMT is only
+  ever displayed via the `"zzz"` format, hh:mm, no seconds).
+
+  `dotnet test` after both fixes: **52/85 passing** (up from 46/85 pre-LMT-fix).
+  Of the 33 remaining failures:
+  - 6 were unblocked by the LMT fix but still fail on their own logic/values
+    once actually exercised for the first time (`LMTToSTDTest`,
+    `SunriseTimeTest` - pre-existing methods; `SunAshtakavargaYoga3Test`,
+    `AbstractActivityTest`, `MainActivityTest` - new best-effort logic/output
+    formatting needs work, e.g. `AbstractActivity`/`MainActivity` return the
+    full `BirdActivity` enum name ("Eating") where the test expects a
+    classical single-letter Pancha Pakshi code ("O"); `TajikaDateForYearTest`
+    - the test's own expected value is the literal placeholder string `"xx"`,
+      never finished, not a real assertion).
+  - The remaining ~27 are a mix of newly-implemented-method domain-math gaps
+    and pre-existing methods/tests that simply never ran before this pass
+    (the file never compiled) - not chased further this session, flagged
+    here rather than silently left broken.
+- **Chat message history** (`ChatMessage`/`PresetQuestionEmbeddings`) - fixed:
+  real Postgres persistence via `IChatMessageRepository`/
+  `IPresetQuestionEmbeddingsRepository` (`Data/Entities`, `Data/Repositories/NamedRepositories.cs`,
+  migration `AddChatTables`), replacing the old in-memory `DisabledTableClient`
+  no-op stub in `ChatAPI.cs`. Also fixed a live `NullReferenceException` in
+  `HoroscopeChatFeedback`/`SendMessageHoroscopeFollowUp` when no matching
+  record exists (now replies gracefully instead of crashing).
 - **`PersonShareList`** ported read-only (matches production — no write
   path exists anywhere in the codebase today).
 - **Email** (`APITools.SendEmail`) stays a no-op/console-log stub — never
   had real SMTP wiring, by decision.
 - **`Website_Mobile`** — untouched, explicitly out of scope.
-- **`MigrateGeoLocationData`** — given a minimal direct `Azure.Data.Tables`
-  reference to keep compiling; not migrated to Postgres (a one-off,
-  already-run data-cleanup script, low priority).
+- **`MigrateGeoLocationData`** — fixed: `ProgramCleanPersonList.cs` no longer
+  references `Azure.Data.Tables` directly. It now goes through the same
+  `IDbContextFactory<AppDbContext>` / `PersonRepository` (`Data/Repositories`)
+  pattern as the rest of the app, reading `ConnectionStrings:Postgres` from an
+  optional `appsettings.json` (gitignored, not committed - same treatment as
+  `API/appsettings.Development.json`) or environment variables. `Program.cs`
+  and `ProgramTimezone.cs` remain fully commented out (dead already-run
+  scripts, untouched).
 - Nothing on this branch has been committed to git yet.
 
 ### Phase 3 — Replace Blazor WASM with React Native (Expo) + TypeScript

@@ -286,6 +286,11 @@ namespace VedAstro.Library
             {
                 inputStr = inputStr.Substring(1);
             }
+            // Strip any decimal point already present (this method expects a misplaced-decimal
+            // *integer* string like "466395571"; if the value already has a decimal point - e.g.
+            // it wasn't actually malformed, just the other coordinate was - re-inserting one
+            // below would produce something like ".35.6895" and crash double.Parse)
+            inputStr = inputStr.Replace(".", "");
             // Calculate the position to insert the decimal point
             int insertPosition = inputStr.Length > 7 ? inputStr.Length - 7 : 0;
             // Insert the decimal point at the correct position

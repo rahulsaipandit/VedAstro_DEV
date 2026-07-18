@@ -25,6 +25,10 @@
 		in Library (CallTracker.cs, ApiStatistic.cs, UserData.cs, LocationManager.cs) can
 		reach the repositories without creating a circular project reference.
 		-->
+		<!-- Used only by PresetQuestionEmbeddingsEntity.GetEmbeddingsArray() (JSON-decodes the
+		     stored embedding vector) - an external NuGet package, not VedAstro.Library, so this
+		     doesn't create the circular reference Library-dependent code would. -->
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.10" />
 		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.10">

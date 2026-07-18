@@ -1,13 +1,11 @@
-﻿using System;
-using System.Formats.Asn1;
-using System.Globalization;
-using System.IO;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
-using Azure.Data.Tables;
-using Azure;
-using CsvHelper;
-using CsvHelper.Configuration;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using VedAstro.Data;
+using VedAstro.Data.Repositories;
 using VedAstro.Library;
 
 namespace MigrateGeoLocationData
@@ -21,44 +19,48 @@ namespace MigrateGeoLocationData
 
             // Date to filter (22 December 2024)
             DateTimeOffset targetDate = new DateTimeOffset(new DateTime(2024, 12, 22), TimeSpan.Zero);
-
-            // Start and end timestamps for the target date in UTC
             DateTimeOffset startTimestamp = targetDate.Date;
             DateTimeOffset endTimestamp = startTimestamp.AddDays(1);
 
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(AppContext.BaseDirectory)
+                .AddJsonFile("appsettings.json", optional: true)
+                .AddEnvironmentVariables()
+                .Build();
 
-            // Build the filter expression
-            string partitionKeyFilter = TableClient.CreateQueryFilter($"PartitionKey eq {partitionKey}");
+            var connectionString = configuration.GetConnectionString("Postgres")
+                ?? throw new InvalidOperationException(
+                    "Missing ConnectionStrings:Postgres - add an appsettings.json next to this " +
+                    "project (see appsettings.Development.json under API/ for the local format).");
 
-            // Build the Timestamp filter
-            string timestampFilter = TableClient.CreateQueryFilter(
-                $"Timestamp ge {startTimestamp} and Timestamp lt {endTimestamp}"
-            );
+            var services = new ServiceCollection();
+            services.AddDbContextFactory<AppDbContext>(options => options.UseNpgsql(connectionString));
+            await using var provider = services.BuildServiceProvider();
 
-            // Combine filters
-            string combinedFilter = $"{partitionKeyFilter} and {timestampFilter}";
+            var contextFactory = provider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+            var personRepository = new PersonRepository(contextFactory);
 
-            // Query the entities
-            // NOTE: AzureTable.PersonList (Library) was removed by the Postgres migration -
-            // this one-off cleanup tool is out of scope for that migration (per migration.md),
-            // so it now builds its own direct Azure Table client instead.
-            var personListTableClient = new TableServiceClient(Secrets.VedAstroCentralStorageConnStr).GetTableClient("PersonList");
-            AsyncPageable<TableEntity> queryResults = personListTableClient.QueryAsync<TableEntity>(filter: combinedFilter);
+            // Same filter as the original Azure Table cleanup: rows in the given partition
+            // created on the target date.
+            var matchingRows = personRepository.Query()
+                .Where(p => p.PartitionKey == partitionKey
+                            && p.Timestamp >= startTimestamp
+                            && p.Timestamp < endTimestamp)
+                .ToList();
 
             int deleteCount = 0;
 
-            // Iterate through the entities and delete them
-            await foreach (TableEntity entity in queryResults)
+            foreach (var row in matchingRows)
             {
                 try
                 {
-                    await personListTableClient.DeleteEntityAsync(entity.PartitionKey, entity.RowKey, ETag.All);
+                    await personRepository.DeleteAsync(row.PartitionKey, row.RowKey);
                     deleteCount++;
-                    Console.WriteLine($"Deleted entity with RowKey: {entity.RowKey}");
+                    Console.WriteLine($"Deleted entity with RowKey: {row.RowKey}");
                 }
-                catch (RequestFailedException ex)
+                catch (Exception ex)
                 {
-                    Console.WriteLine($"Failed to delete entity with RowKey: {entity.RowKey}. Error: {ex.Message}");
+                    Console.WriteLine($"Failed to delete entity with RowKey: {row.RowKey}. Error: {ex.Message}");
                 }
             }
 
@@ -66,5 +68,4 @@ namespace MigrateGeoLocationData
             Console.WriteLine("Operation completed.");
         }
     }
-
 }

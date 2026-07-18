@@ -39,29 +39,6 @@ namespace VedAstro.Library
 
         private static List<string> followupQuestions = new List<string> { "Why?", "How?", "Tell me more..." };
 
-        /// <summary>
-        /// Chat message history / preset-question-embeddings persistence is NOT part of the
-        /// Postgres migration's ported table list (see migration plan) - these tables were only
-        /// ever used by experimental Cohere-embeddings search code, most of which is already
-        /// dead/commented out. Rather than build a full repository for them, they're stubbed to
-        /// a no-op in-memory shim here so ChatAPI.cs compiles without Azure.Data.Tables and the
-        /// live LLM-reply chat flow (which doesn't depend on this) keeps working. TODO: wire a
-        /// real Postgres-backed repository for ChatMessage/PresetQuestionEmbeddings if the
-        /// chat-history/feedback-rating and semantic-search-over-presets features are needed.
-        /// </summary>
-        private static DisabledTableClient chatTableClient = new DisabledTableClient();
-        private static DisabledTableClient presetQuestionEmbeddingsTableClient = new DisabledTableClient();
-
-        private class DisabledTableClient
-        {
-            public IEnumerable<T> Query<T>(string filter) => Enumerable.Empty<T>();
-            public IEnumerable<T> Query<T>(Expression<Func<T, bool>> filter) => Enumerable.Empty<T>();
-            public object? UpsertEntity<T>(T entity, object? mode = null) => null;
-            public object? AddEntity<T>(T entity) => null;
-        }
-
-
-
         //#             +> FOLLOW-UP --> specialized lite llm call
         //#             |
         //# QUESTION ---+> GIVE FEEDBACK --> 
@@ -154,16 +131,31 @@ namespace VedAstro.Library
             string userId = "", string sessionId = "")
         {
             //log the follow-up first
-            SaveToTable(new ChatMessageEntity(sessionId, birthTime, followUpQuestion, "Human", userId));
+            await SaveToTable(CreateChatMessage(sessionId, birthTime, followUpQuestion, "Human", userId));
 
-            //based on hash get full question as pure text
+            var noFollowUpAnyMoreOnFailure = new List<string>();
+
+            //based on hash get full question as pure text - may be gone/never existed (bad hash,
+            //expired session), so fail gracefully instead of crashing on a null dereference
             var primaryAnswerData = ReadFromTable(sessionId, primaryAnswerHash);
+            if (primaryAnswerData == null)
+            {
+                return await PackageReply(birthTime, userId, followUpQuestion,
+                    "Sorry, I couldn't find that earlier answer to follow up on anymore 🙏",
+                    noFollowUpAnyMoreOnFailure, sessionId);
+            }
 
             var primaryAnswer = primaryAnswerData.Text;
 
             //based on primary answer, back track to primary question
             var primaryQuestionMsgNumber = primaryAnswerData.MessageNumber - 1; // go up 1 step
             var primaryQuestionData = ReadFromTableByMessageNumber(sessionId, primaryQuestionMsgNumber);
+            if (primaryQuestionData == null)
+            {
+                return await PackageReply(birthTime, userId, followUpQuestion,
+                    "Sorry, I couldn't find the original question for that answer anymore 🙏",
+                    noFollowUpAnyMoreOnFailure, sessionId);
+            }
 
             var primaryQuestion = primaryQuestionData.Text;
 
@@ -177,22 +169,34 @@ namespace VedAstro.Library
             var noFollowUpAnyMore = new List<string>(); //no follow up to a follow-up
 
             //note: PackageReply saves the AI reply to the log itself
-            return PackageReply(birthTime, userId, followUpQuestion, aiReply, noFollowUpAnyMore, sessionId);
+            return await PackageReply(birthTime, userId, followUpQuestion, aiReply, noFollowUpAnyMore, sessionId);
         }
 
         public static async Task<JObject> HoroscopeChatFeedback(string answerHash, int feedbackScore)
         {
 
             //find answer record that user has asked to rate
-            string filter = $"RowKey eq '{answerHash}'";
+            var recordFound = Repositories.ChatMessage.Query().FirstOrDefault(m => m.RowKey == answerHash);
 
-            var recordFound = chatTableClient.Query<ChatMessageEntity>(filter).FirstOrDefault();
+            //answer may have aged out / never existed - reply gracefully instead of crashing
+            if (recordFound == null)
+            {
+                return new JObject
+                {
+                    { "SessionId", "" },
+                    { "Text", "Sorry, I couldn't find that answer to rate anymore 🙏" },
+                    { "TextHtml", "Sorry, I couldn't find that answer to rate anymore 🙏" },
+                    { "TextHash", Tools.GenerateId(10) },
+                    { "FollowUpQuestions", new JArray() },
+                    { "Commands", new JArray() }
+                };
+            }
 
             //combine rating
             recordFound.Rating += feedbackScore;
 
             //save back to DB
-            chatTableClient.UpsertEntity(recordFound);
+            await Repositories.ChatMessage.UpsertAsync(recordFound);
 
             //# say thanks 🙏
             //# NOTE: DO NOT tell the user explicitly to give more feedback
@@ -250,7 +254,7 @@ namespace VedAstro.Library
             if (string.IsNullOrEmpty(sessionId)) { sessionId = Tools.GenerateId(); }
 
             //save incoming message to log
-            SaveToTable(new ChatMessageEntity(sessionId, birthTime, userQuestion, "Human", userId));
+            await SaveToTable(CreateChatMessage(sessionId, birthTime, userQuestion, "Human", userId));
 
             var replyText = "";
 
@@ -278,19 +282,44 @@ namespace VedAstro.Library
             replyText = await IsHoroscopeAstrology(birthTime, userQuestion);
 
             //pack nicely and send to user (PackageReply saves the AI reply to the log itself)
-            return PackageReply(birthTime, userId, userQuestion, replyText, followupQuestions, sessionId);
+            return await PackageReply(birthTime, userId, userQuestion, replyText, followupQuestions, sessionId);
+        }
+
+        /// <summary>
+        /// Builds a ready-to-save ChatMessageEntity - row-key hashing and message numbering used
+        /// to live in ChatMessageEntity's constructor, but that class is now a plain POCO living
+        /// in VedAstro.Data (see its header comment), so this Library-side logic (Tools, Time,
+        /// GetLastMessageNumberNumberFromSessionId) moved here instead.
+        /// </summary>
+        private static ChatMessageEntity CreateChatMessage(string sessionId, Time birthTime, string text, string sender, string userId)
+        {
+            var textHash = Tools.GetStringHashCodeMD5(text, 15);
+            var birthTimeSimple = birthTime.ToUrl().Replace("/", "-");
+            var rawRowKey = $"{textHash}{birthTimeSimple}-{Tools.GenerateId(5)}";
+            var cleanRowKey = System.Text.RegularExpressions.Regex.Replace(rawRowKey, @"[^a-zA-Z0-9\-\.\/_]", "");
+
+            //NOTE: if new session id, will return 0
+            var messageNumber = GetLastMessageNumberNumberFromSessionId(sessionId);
+
+            return new ChatMessageEntity
+            {
+                PartitionKey = sessionId,
+                RowKey = cleanRowKey,
+                UserId = userId,
+                Sender = sender,
+                Text = text,
+                MessageNumber = messageNumber + 1 // add 1 for next message
+            };
         }
 
         public static int GetLastMessageNumberNumberFromSessionId(string sessionId)
         {
-
-            // If session id already exists, check Azure data tables and get the message number of the latest record by timestamp
-            Expression<Func<ChatMessageEntity, bool>> expression = call => call.PartitionKey == sessionId;
-
-            // Execute search
-            var recordFound = chatTableClient?.Query(expression)
-                ?.OrderByDescending(call => call.Timestamp)
-                ?.FirstOrDefault();
+            // Query() materializes eagerly (see EfKeyedRepository.Query()), so this stays a plain
+            // synchronous call - safe to use from ChatMessageEntity's constructor.
+            var recordFound = Repositories.ChatMessage?.Query()
+                .Where(call => call.PartitionKey == sessionId)
+                .OrderByDescending(call => call.Timestamp)
+                .FirstOrDefault();
 
             // If no record is found, start with message number 0
             var messageNumber = recordFound?.MessageNumber ?? 0; //set 0 so caller can easily add 1 on top
@@ -324,31 +353,18 @@ namespace VedAstro.Library
 
             var allEmbeddings = rawEmbeddingsData["embeddings"];
             var embed = allEmbeddings[0];
+            var queryVector = embed.Select(jv => (double)jv).ToArray();
 
-            //find answer record that user has asked to rate
-            //find answer record that user has asked to rate
-            StringBuilder filter = new StringBuilder();
+            //NOTE: the original Azure Table version built an OData range filter over 100
+            //individual Vector1..Vector100 columns, but PresetQuestionEmbeddingsEntity only ever
+            //stored a single JSON-encoded Embeddings column (see CreatePresetQuestionEmbeddings_CohereEmbed
+            //below) - that filter could never have matched anything even before this migration.
+            //Real equivalent: pull every preset row and rank by cosine similarity in-memory instead.
+            var allPresets = Repositories.PresetQuestionEmbeddings.Query().ToList();
 
-            for (int i = 0; i < 100; i++)
-            {
-                var centerVal = double.Parse(embed[i].ToString());
-                var percentile = centerVal * 2; //30%
-                var lowVal = (centerVal - percentile).ToString().Truncate(7, "");
-                var highVal = (centerVal + percentile).ToString().Truncate(7, "");
-                filter.Append($"(Vector{i + 1} ge {lowVal} and Vector{i + 1} le {highVal})");
+            var recordFound = GetSimilarity(queryVector, allPresets).Values.ToList();
 
-                if (i != 99) // not the last iteration
-                {
-                    filter.Append(" or ");
-                }
-            }
-
-            string finalFilter = filter.ToString();
-
-            var recordFound = presetQuestionEmbeddingsTableClient.Query<PresetQuestionEmbeddingsEntity>(finalFilter)?.ToList();
-
-
-            return recordFound ?? new List<PresetQuestionEmbeddingsEntity>();
+            return recordFound;
         }
 
         public static async Task LLMSearchAPICall_CohereEmbed(string searchKeywords)
@@ -363,8 +379,8 @@ namespace VedAstro.Library
 
             //#2 GET EMBED API DOCS
 
-            var finalFilter = $"PartitionKey eq 'APICall'"; //get all
-            var allDocsEmbeddings = presetQuestionEmbeddingsTableClient.Query<PresetQuestionEmbeddingsEntity>(finalFilter)?.ToList();
+            var allDocsEmbeddings = Repositories.PresetQuestionEmbeddings.Query()
+                .Where(e => e.PartitionKey == "APICall").ToList();
 
 
             //var allDocsEmbeddings = docsEmbedRaw["embeddings"];
@@ -462,7 +478,7 @@ namespace VedAstro.Library
             //STAGE 2 : SAVE TO DB
             foreach (var embedRow in dbReadyRecords)
             {
-                presetQuestionEmbeddingsTableClient.UpsertEntity(embedRow);
+                await Repositories.PresetQuestionEmbeddings.UpsertAsync(embedRow);
             }
 
 
@@ -617,11 +633,11 @@ namespace VedAstro.Library
         }
 
 
-        private static JObject PackageReply(Time birthTime, string userId, string userQuestion, string aiReplyText, List<string> followUpQuestions, string sessionId, string aiReplyHtml = "", List<string> commands = null)
+        private static async Task<JObject> PackageReply(Time birthTime, string userId, string userQuestion, string aiReplyText, List<string> followUpQuestions, string sessionId, string aiReplyHtml = "", List<string> commands = null)
         {
 
             //save AI's reply
-            var textHash = SaveToTable(new ChatMessageEntity(sessionId, birthTime, aiReplyText, "AI", userId)).RowKey;
+            var textHash = (await SaveToTable(CreateChatMessage(sessionId, birthTime, aiReplyText, "AI", userId))).RowKey;
 
             //using user question and LLM make answer more readable in HTML, bolding, paragraphing...etc
             //string textHtml = ChatAPI.HighlightKeywords_MistralSmall(aiReplyText, userQuestion).Result;
@@ -649,14 +665,8 @@ namespace VedAstro.Library
 
         private static ChatMessageEntity ReadFromTableByMessageNumber(string sessionId, int messageNumber)
         {
-
-            Expression<Func<ChatMessageEntity, bool>> expression = call =>
-                call.PartitionKey == sessionId &&
-                call.MessageNumber == messageNumber;
-
-            //execute search
-            var recordFound = chatTableClient.Query(expression).FirstOrDefault();
-
+            var recordFound = Repositories.ChatMessage.Query()
+                .FirstOrDefault(call => call.PartitionKey == sessionId && call.MessageNumber == messageNumber);
 
             return recordFound;
 
@@ -664,22 +674,21 @@ namespace VedAstro.Library
 
         public static ChatMessageEntity ReadFromTable(string sessionId, string messageHash)
         {
-            string filter = $"PartitionKey eq '{sessionId}' and RowKey ge '{messageHash}'";
-
-            var recordFound = chatTableClient.Query<ChatMessageEntity>(filter).FirstOrDefault();
+            //NOTE: original Azure Table filter used "RowKey ge messageHash" (a range comparison,
+            //since RowKey is textHash+birthTime+randomId, not just the hash) - kept identical here.
+            var recordFound = Repositories.ChatMessage.Query()
+                .Where(call => call.PartitionKey == sessionId)
+                .FirstOrDefault(call => string.CompareOrdinal(call.RowKey, messageHash) >= 0);
 
             return recordFound;
 
         }
 
-        public static ChatMessageEntity SaveToTable(ChatMessageEntity inputChatMessageEntity)
+        public static async Task<ChatMessageEntity> SaveToTable(ChatMessageEntity inputChatMessageEntity)
         {
-
-            var response = chatTableClient.AddEntity(inputChatMessageEntity);
+            await Repositories.ChatMessage.AddAsync(inputChatMessageEntity);
 
             return inputChatMessageEntity;
-            //Console.WriteLine(response);
-
         }
 
 

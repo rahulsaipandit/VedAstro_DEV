@@ -79,7 +79,7 @@ namespace VedAstro.Library
         [HoroscopeCalculator(HoroscopeName.MoonAshtakavargaYoga3)]
         public static CalculatorResult MoonAshtakavargaYoga3(Time birthTime)
         {
-            //Moon in the 6th or 11th 
+            //Moon in the 6th or 11th
             var moonHouse = Calculate.HousePlanetOccupies(Moon, birthTime);
             var isMoonIn6th11th = moonHouse == House6 || moonHouse == House11;
 
@@ -96,7 +96,230 @@ namespace VedAstro.Library
             return CalculatorResult.New(isOccuring, new[] { Moon }, birthTime);
         }
 
+        /// <summary>
+        /// This method was missing from Library entirely prior to this fix; implemented here as
+        /// best-effort based on standard Ashtakavarga astrology rules and the test's documented
+        /// scenario. Verify against a second source if this is used for production predictions.
+        ///
+        /// Moon as lord of the 6th house, weakly placed (3 or fewer bindus in his own
+        /// Ashtakavarga) in a dusthana (3rd, 6th, 8th or 12th house), afflicted by a malefic
+        /// (conjunct or aspected by Rahu/Ketu/Mars/Saturn), tends to ruin the native's health
+        /// through overwork or litigation (BV Raman, Ashtakavarga System of Prediction pg. ~40-45).
+        /// </summary>
+        [HoroscopeCalculator(HoroscopeName.MoonAshtakavargaYoga1A)]
+        public static CalculatorResult MoonAshtakavargaYoga1A(Time birthTime)
+        {
+            //Moon must be lord of the 6th house (classical Ashtakavarga uses whole-sign houses,
+            //not longitude/cusp-based houses, so lordship and house placement both need the
+            //whole-sign equivalents - Calculate.HouseRasiSign / HousePlanetOccupiesBasedOnSign -
+            //rather than LordOfHouse/HousePlanetOccupies, which are cusp-based)
+            var moonIsLordOf6th = Calculate.LordOfZodiacSign(Calculate.HouseRasiSign(House6, birthTime).GetSignName()) == Moon;
 
+            //weakly disposed = 3 or fewer bindus in his own Ashtakavarga
+            var moonRasi = Calculate.PlanetZodiacSign(Moon, birthTime);
+            var bindus = Calculate.PlanetAshtakvargaBindu(Moon, moonRasi.GetSignName(), birthTime);
+            var isWeak = bindus <= 3;
+
+            //placed in a dusthana (3rd, 6th, 8th or 12th)
+            var moonHouse = Calculate.HousePlanetOccupiesBasedOnSign(Moon, birthTime);
+            var isInDusthana = moonHouse == House3 || moonHouse == House6 || moonHouse == House8 || moonHouse == House12;
+
+            //afflicted by a malefic (Rahu, Ketu, Mars or Saturn) via conjunction or aspect
+            //(the doc comment above already promised "conjunct or aspected", but this was only
+            //ever checking aspect - Karl Marx's Moon is specifically "associated with" (conjunct)
+            //Rahu, not aspected by it, so the conjunction check was needed for this to occur)
+            var afflictedByMalefic =
+                Calculate.IsPlanetConjunctWithPlanet(Moon, Rahu, birthTime) ||
+                Calculate.IsPlanetConjunctWithPlanet(Moon, Ketu, birthTime) ||
+                Calculate.IsPlanetConjunctWithPlanet(Moon, Mars, birthTime) ||
+                Calculate.IsPlanetConjunctWithPlanet(Moon, Saturn, birthTime) ||
+                Calculate.IsPlanetAspectedByPlanet(Moon, Rahu, birthTime) ||
+                Calculate.IsPlanetAspectedByPlanet(Moon, Ketu, birthTime) ||
+                Calculate.IsPlanetAspectedByPlanet(Moon, Mars, birthTime) ||
+                Calculate.IsPlanetAspectedByPlanet(Moon, Saturn, birthTime);
+
+            var isOccuring = moonIsLordOf6th && isWeak && isInDusthana && afflictedByMalefic;
+
+            return CalculatorResult.New(isOccuring, new[] { Moon }, birthTime);
+        }
+
+        /// <summary>
+        /// This method was missing from Library entirely prior to this fix; implemented here as
+        /// best-effort based on standard Ashtakavarga astrology rules and the test's documented
+        /// scenario. Verify against a second source if this is used for production predictions.
+        ///
+        /// Moon as lord of the 9th house placed in the 6th house with a healthy number of bindus
+        /// (6 or more) in his own Ashtakavarga is said to bring wealth/success despite the
+        /// dusthana placement (BV Raman, Ashtakavarga System of Prediction, Henry Ford example).
+        /// </summary>
+        [HoroscopeCalculator(HoroscopeName.MoonAshtakavargaYoga2B)]
+        public static CalculatorResult MoonAshtakavargaYoga2B(Time birthTime)
+        {
+            //Moon must be lord of the 9th house (whole-sign, see MoonAshtakavargaYoga1A note)
+            var moonIsLordOf9th = Calculate.LordOfZodiacSign(Calculate.HouseRasiSign(House9, birthTime).GetSignName()) == Moon;
+
+            //placed in the 6th house
+            var moonHouse = Calculate.HousePlanetOccupiesBasedOnSign(Moon, birthTime);
+            var isIn6th = moonHouse == House6;
+
+            //associated with 6 or more bindus
+            var moonRasi = Calculate.PlanetZodiacSign(Moon, birthTime);
+            var bindus = Calculate.PlanetAshtakvargaBindu(Moon, moonRasi.GetSignName(), birthTime);
+            var isStrong = bindus >= 6;
+
+            var isOccuring = moonIsLordOf9th && isIn6th && isStrong;
+
+            return CalculatorResult.New(isOccuring, new[] { Moon }, birthTime);
+        }
+
+        /// <summary>
+        /// This method was missing from Library entirely prior to this fix; implemented here as
+        /// best-effort based on standard Ashtakavarga astrology rules and the test's documented
+        /// scenario. Verify against a second source if this is used for production predictions.
+        ///
+        /// The Sun in the 6th house from Lagna, with 6 or more bindus in his own Ashtakavarga,
+        /// aspected by Jupiter, is a favourable disposition (BV Raman, Ashtakavarga System of
+        /// Prediction pg. 39).
+        /// </summary>
+        [HoroscopeCalculator(HoroscopeName.SunAshtakavargaYoga10)]
+        public static CalculatorResult SunAshtakavargaYoga10(Time birthTime)
+        {
+            //Sun in the 6th house from Lagna (whole-sign, see MoonAshtakavargaYoga1A note)
+            var sunHouse = Calculate.HousePlanetOccupiesBasedOnSign(Sun, birthTime);
+            var isIn6th = sunHouse == House6;
+
+            //6 or more bindus in his own Ashtakavarga
+            var sunRasi = Calculate.PlanetZodiacSign(Sun, birthTime);
+            var bindus = Calculate.PlanetAshtakvargaBindu(Sun, sunRasi.GetSignName(), birthTime);
+            var isStrong = bindus >= 6;
+
+            //aspected by Jupiter
+            var aspectedByJupiter = Calculate.IsPlanetAspectedByPlanet(Sun, Jupiter, birthTime);
+
+            var isOccuring = isIn6th && isStrong && aspectedByJupiter;
+
+            return CalculatorResult.New(isOccuring, new[] { Sun, Jupiter }, birthTime);
+        }
+
+        /// <summary>
+        /// This method was missing from Library entirely prior to this fix; implemented here as
+        /// best-effort based on standard Ashtakavarga astrology rules and the test's documented
+        /// scenario. Verify against a second source if this is used for production predictions.
+        ///
+        /// If the Sun, as lord of Lagna, occupies Lagna, associated with 5, 6 or 7 bindus in his
+        /// own Ashtakavarga, the native becomes a "King of many countries" (Bahu-bhumipala)
+        /// (Naradeeya, quoted in BV Raman's Ashtakavarga System of Prediction).
+        /// </summary>
+        [HoroscopeCalculator(HoroscopeName.SunAshtakavargaYoga3)]
+        public static CalculatorResult SunAshtakavargaYoga3(Time birthTime)
+        {
+            //Sun must be lord of Lagna (whole-sign, see MoonAshtakavargaYoga1A note)
+            var sunIsLordOfLagna = Calculate.LordOfZodiacSign(Calculate.HouseRasiSign(House1, birthTime).GetSignName()) == Sun;
+
+            //Sun occupies Lagna
+            var sunHouse = Calculate.HousePlanetOccupiesBasedOnSign(Sun, birthTime);
+            var isInLagna = sunHouse == House1;
+
+            //associated with 5, 6 or 7 bindus
+            var sunRasi = Calculate.PlanetZodiacSign(Sun, birthTime);
+            var bindus = Calculate.PlanetAshtakvargaBindu(Sun, sunRasi.GetSignName(), birthTime);
+            var isStrong = bindus == 5 || bindus == 6 || bindus == 7;
+
+            var isOccuring = sunIsLordOfLagna && isInLagna && isStrong;
+
+            return CalculatorResult.New(isOccuring, new[] { Sun }, birthTime);
+        }
+
+        /// <summary>
+        /// This method was missing from Library entirely prior to this fix; implemented here as
+        /// best-effort based on standard Ashtakavarga astrology rules and the test's documented
+        /// scenario. Verify against a second source if this is used for production predictions.
+        ///
+        /// One becomes wealthy if Mars, associated with 4 or more bindus in his own Ashtakavarga,
+        /// occupies the Lagna, Chandra Lagna (Moon's sign counted as 1st), or the 9th/10th house
+        /// counted from the Moon, provided it is also his own or exaltation sign
+        /// (BV Raman, Ashtakavarga System of Prediction pg. 53).
+        /// </summary>
+        [HoroscopeCalculator(HoroscopeName.MarsAshtakavargaYoga7)]
+        public static CalculatorResult MarsAshtakavargaYoga7(Time birthTime)
+        {
+            //4 or more bindus in Mars' own Ashtakavarga
+            var marsRasi = Calculate.PlanetZodiacSign(Mars, birthTime);
+            var bindus = Calculate.PlanetAshtakvargaBindu(Mars, marsRasi.GetSignName(), birthTime);
+            var isStrong = bindus >= 4;
+
+            //house counted from the Moon (Chandra Lagna) that Mars occupies
+            var moonRasi = Calculate.MoonSignName(birthTime);
+            var countFromMoon = Calculate.CountFromSignToSign(moonRasi, marsRasi.GetSignName());
+            var isInGoodHouseFromMoon = countFromMoon == 1 || countFromMoon == 9 || countFromMoon == 10;
+
+            //also his own or exaltation sign
+            var isOwnOrExalted = Calculate.IsPlanetInOwnSign(Mars, birthTime) || Calculate.IsPlanetExaltedSign(Mars, birthTime);
+
+            var isOccuring = isStrong && isInGoodHouseFromMoon && isOwnOrExalted;
+
+            return CalculatorResult.New(isOccuring, new[] { Mars }, birthTime);
+        }
+
+        /// <summary>
+        /// This method was missing from Library entirely prior to this fix; implemented here as
+        /// best-effort based on standard Ashtakavarga astrology rules and the test's documented
+        /// scenario. Verify against a second source if this is used for production predictions.
+        ///
+        /// Mercury in a quadrant (Kendra: 1st, 4th, 7th or 10th) with 3 or more bindus in his own
+        /// Ashtakavarga, aspected by Jupiter, bestows good insight/learning
+        /// (BV Raman, Ashtakavarga System of Prediction pg. 62, Standard Horoscope example).
+        /// </summary>
+        [HoroscopeCalculator(HoroscopeName.MercuryAshtakavargaYoga8)]
+        public static CalculatorResult MercuryAshtakavargaYoga8(Time birthTime)
+        {
+            //Mercury in a Kendra (quadrant) - whole-sign, see MoonAshtakavargaYoga1A note
+            var mercuryHouse = Calculate.HousePlanetOccupiesBasedOnSign(Mercury, birthTime);
+            var isInKendra = mercuryHouse == House1 || mercuryHouse == House4 || mercuryHouse == House7 || mercuryHouse == House10;
+
+            //3 or more bindus in his own Ashtakavarga
+            var mercuryRasi = Calculate.PlanetZodiacSign(Mercury, birthTime);
+            var bindus = Calculate.PlanetAshtakvargaBindu(Mercury, mercuryRasi.GetSignName(), birthTime);
+            var isStrongEnough = bindus >= 3;
+
+            //aspected by Jupiter
+            var aspectedByJupiter = Calculate.IsPlanetAspectedByPlanet(Mercury, Jupiter, birthTime);
+
+            var isOccuring = isInKendra && isStrongEnough && aspectedByJupiter;
+
+            return CalculatorResult.New(isOccuring, new[] { Mercury, Jupiter }, birthTime);
+        }
+
+        /// <summary>
+        /// This method was missing from Library entirely prior to this fix; implemented here as
+        /// best-effort based on standard Ashtakavarga astrology rules and the test's documented
+        /// scenario. Verify against a second source if this is used for production predictions.
+        ///
+        /// The lord of the sign occupied by Mercury (in the 9th house), associated with 5 or more
+        /// bindus in his own Ashtakavarga, bestows great intelligence on the native
+        /// (BV Raman, Ashtakavarga System of Prediction pg. 62, Standard Horoscope example: Venus,
+        /// lord of the sign occupied by Mercury, is in the 9th with 5 bindus).
+        /// </summary>
+        [HoroscopeCalculator(HoroscopeName.MercuryAshtakavargaYoga12A)]
+        public static CalculatorResult MercuryAshtakavargaYoga12A(Time birthTime)
+        {
+            //find the lord of the sign occupied by Mercury
+            var mercuryRasi = Calculate.PlanetZodiacSign(Mercury, birthTime);
+            var lordOfMercurysSign = Calculate.LordOfZodiacSign(mercuryRasi.GetSignName());
+
+            //that lord must be in the 9th house (whole-sign, see MoonAshtakavargaYoga1A note)
+            var lordHouse = Calculate.HousePlanetOccupiesBasedOnSign(lordOfMercurysSign, birthTime);
+            var isIn9th = lordHouse == House9;
+
+            //associated with 5 or more bindus in its own Ashtakavarga
+            var lordSign = Calculate.PlanetZodiacSign(lordOfMercurysSign, birthTime);
+            var bindus = Calculate.PlanetAshtakvargaBindu(lordOfMercurysSign, lordSign.GetSignName(), birthTime);
+            var isStrong = bindus >= 5;
+
+            var isOccuring = isIn9th && isStrong;
+
+            return CalculatorResult.New(isOccuring, new[] { Mercury, lordOfMercurysSign }, birthTime);
+        }
 
         #endregion
 

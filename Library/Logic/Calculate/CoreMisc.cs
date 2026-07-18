@@ -376,11 +376,20 @@ namespace VedAstro.Library
         //█▄▄ ██▄ █▄█ █▀█ █▄▄ ░█░   █▄▄ █ █▄▄ ██▄   █ █░▀░█ █▀▀ █▄█ █▀▄ ░█░
 
         /// <summary>
-        /// Best-effort parser for legacy Jagannatha Hora (.jhd) birth data files: scans for
-        /// date/time/coordinate-shaped tokens rather than assuming an exact field layout, since
-        /// the precise JHD spec wasn't available for this reconstruction (see CoreTime.cs header
-        /// note). Falls back to Person.Empty (renamed) fields on anything it can't confidently parse -
-        /// review imported data before relying on it.
+        /// Parser for legacy Jagannatha Hora (.jhd) birth data files, per the standard JHD ASCII
+        /// field layout (one value per line, fixed order): month, day, year, time, time-zone,
+        /// longitude, latitude, altitude, ...
+        ///
+        /// Two JHD-specific quirks this relies on (reverse-engineered from the test's own worked
+        /// examples, notably Marilyn Monroe's well-documented 9:30 AM birth time):
+        /// 1) The time and time-zone fields are written as literal "HH.MM" (e.g. "14.20" means
+        ///    14h 20m, NOT 14.20 decimal hours / 14h12m) - printed as doubles this often shows up
+        ///    as something like "14.199999999999999" due to binary floating point rounding.
+        /// 2) The time-zone (and longitude) fields use JHD's inverted "positive = West" sign
+        ///    convention, opposite of this Library's standard "positive = East" convention, so
+        ///    both must be negated after parsing.
+        /// Falls back to an empty birth time on anything that doesn't parse - review imported
+        /// data before relying on it.
         /// </summary>
         public static Person ParseJHDFiles(string personName, string rawJhdFile)
         {
@@ -388,32 +397,40 @@ namespace VedAstro.Library
             {
                 var lines = rawJhdFile.Split('\n', '\r').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
 
-                //date looks like d,m,y or d/m/y ; time looks like h,m,s or h:m:s
-                var dateMatch = System.Text.RegularExpressions.Regex.Match(rawJhdFile, @"(\d{1,2})[,/](\d{1,2})[,/](\d{4})");
-                var timeMatch = System.Text.RegularExpressions.Regex.Match(rawJhdFile, @"(\d{1,2})[,:](\d{1,2})[,:](\d{1,2})");
-                var coordMatch = System.Text.RegularExpressions.Regex.Match(rawJhdFile, @"(-?\d{1,3}\.\d+)[,\s]+(-?\d{1,3}\.\d+)");
-
-                var geoLocation = coordMatch.Success
-                    ? new GeoLocation(personName, double.Parse(coordMatch.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture), double.Parse(coordMatch.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture))
-                    : GeoLocation.Empty;
-
-                if (dateMatch.Success && timeMatch.Success)
+                //need at least month, day, year, time, time-zone, longitude, latitude
+                if (lines.Count < 7)
                 {
-                    var day = int.Parse(dateMatch.Groups[1].Value);
-                    var month = int.Parse(dateMatch.Groups[2].Value);
-                    var year = int.Parse(dateMatch.Groups[3].Value);
-                    var hour = int.Parse(timeMatch.Groups[1].Value);
-                    var minute = int.Parse(timeMatch.Groups[2].Value);
-                    var second = int.Parse(timeMatch.Groups[3].Value);
-
-                    var lmtDateTime = new System.DateTime(year, month, day, hour, minute, second);
-                    var birthTime = new Time(lmtDateTime, GetLocalTimeOffsetSafe(geoLocation), geoLocation);
-
-                    return new Person(personName, birthTime, Gender.Male);
+                    Console.WriteLine($"[ParseJHDFiles] could not confidently parse '{personName}', returning with empty birth time - review manually.");
+                    return new Person(personName, Time.Empty, Gender.Male);
                 }
 
-                Console.WriteLine($"[ParseJHDFiles] could not confidently parse '{personName}', returning with empty birth time - review manually.");
-                return new Person(personName, Time.Empty, Gender.Male);
+                var month = int.Parse(lines[0], System.Globalization.CultureInfo.InvariantCulture);
+                var day = int.Parse(lines[1], System.Globalization.CultureInfo.InvariantCulture);
+                var year = int.Parse(lines[2], System.Globalization.CultureInfo.InvariantCulture);
+
+                //literal "HH.MM" notation, always a positive time-of-day
+                var timeOfDayHours = Math.Abs(ParseJhdHourMinuteField(lines[3]));
+                var hour = (int)Math.Floor(timeOfDayHours);
+                var minute = (int)Math.Round((timeOfDayHours - hour) * 60);
+                if (minute == 60) { hour = (hour + 1) % 24; minute = 0; }
+
+                //JHD stores time-zone as hours WEST of Greenwich; negate for this Library's
+                //standard East-positive convention
+                var stdOffsetHours = -ParseJhdHourMinuteField(lines[4]);
+
+                //JHD stores longitude as degrees WEST; negate for standard East-positive convention.
+                //NOTE: unlike the time/time-zone fields above, long/lat are plain decimal degrees.
+                var longitude = -double.Parse(lines[5], System.Globalization.CultureInfo.InvariantCulture);
+                var latitude = double.Parse(lines[6], System.Globalization.CultureInfo.InvariantCulture);
+                var placeName = lines.Count > 12 && !string.IsNullOrWhiteSpace(lines[12]) ? lines[12] : personName;
+                var geoLocation = new GeoLocation(placeName, longitude, latitude);
+
+                //the parsed date/time/time-zone together already represent the actual civil
+                //(standard) birth time - not LMT - so build the DateTimeOffset directly
+                var stdDateTimeOffset = new DateTimeOffset(year, month, day, hour, minute, 0, TimeSpan.FromHours(stdOffsetHours));
+                var birthTime = new Time(stdDateTimeOffset, geoLocation);
+
+                return new Person(personName, birthTime, Gender.Male);
             }
             catch (Exception ex)
             {
@@ -422,7 +439,20 @@ namespace VedAstro.Library
             }
         }
 
-        private static TimeSpan GetLocalTimeOffsetSafe(GeoLocation geoLocation) =>
-            geoLocation.Equals(GeoLocation.Empty) ? TimeSpan.Zero : LongitudeToLMTOffset(geoLocation.Longitude());
+        /// <summary>
+        /// Parses a JHD "HH.MM" literal field (dot separates hour digits from minute digits, this
+        /// is NOT a decimal fraction of an hour) into signed decimal hours, tolerant of binary
+        /// floating point printing artifacts (e.g. "14.199999999999999" for a literal "14.20").
+        /// </summary>
+        private static double ParseJhdHourMinuteField(string raw)
+        {
+            var value = double.Parse(raw, System.Globalization.CultureInfo.InvariantCulture);
+            var sign = value < 0 ? -1 : 1;
+            var absValue = Math.Abs(value);
+            var wholeUnits = Math.Floor(absValue);
+            var subUnits = Math.Round((absValue - wholeUnits) * 100, MidpointRounding.AwayFromZero);
+            if (subUnits >= 60) { wholeUnits += 1; subUnits -= 60; }
+            return sign * (wholeUnits + (subUnits / 60.0));
+        }
     }
 }

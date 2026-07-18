@@ -65,36 +65,41 @@ namespace API.IntegrationTests
         }
 
         [SkippableFact]
-        public async Task HoroscopeFollowUpChat_ViaCalculateDispatcher_FailsGracefully()
+        public async Task HoroscopeFollowUpChat_ViaCalculateDispatcher_ReturnsGracefulReply()
         {
             Skip.IfNot(await IsLmStudioReachable(), "LM Studio not running at LOCAL_LLM_BASE_URL");
 
-            // NOTE: chat message history persistence (ChatAPI.cs's chatTableClient) is an
-            // intentional in-memory no-op stub post-migration (see its doc comment) - so a
-            // follow-up can never actually find its primary answer by hash. This proves the
-            // dispatcher still fails *gracefully* (Fail envelope, HTTP 200) rather than crashing -
-            // see final report for this as a flagged TODO, not something fixed here.
+            // Chat message history is now real Postgres-backed persistence (ChatAPI.cs's
+            // ChatMessage repository - previously an in-memory no-op stub). A nonexistent hash/
+            // session genuinely has no record, so this proves the dispatcher returns a graceful
+            // in-app reply (Pass envelope, no primary answer found) rather than a null-ref crash.
             var url = $"/api/Calculate/HoroscopeFollowUpChat/{BirthTimeUrlSegment}/FollowUpQuestion/WhyThough/PrimaryAnswerHash/nonexistent-hash/UserId/chat-test-user/SessionId/nonexistent-session";
             var response = await _client.GetAsync(url);
             response.EnsureSuccessStatusCode();
 
             var json = JObject.Parse(await response.Content.ReadAsStringAsync());
-            Assert.Equal("Fail", json["Status"]!.ToString());
+            Assert.Equal("Pass", json["Status"]!.ToString());
+            var payload = (JObject)json["Payload"]!;
+            Assert.Contains("couldn't find", payload["Text"]!.ToString());
         }
 
         [SkippableFact]
-        public async Task HoroscopeChatFeedback_ViaCalculateDispatcher_FailsGracefully()
+        public async Task HoroscopeChatFeedback_ViaCalculateDispatcher_ReturnsGracefulReply()
         {
             Skip.IfNot(await IsLmStudioReachable(), "LM Studio not running at LOCAL_LLM_BASE_URL");
 
-            // Same stubbed chat-history limitation as the follow-up test above - no record ever
-            // exists to rate, so this proves graceful failure rather than an unhandled exception.
+            // Same real-persistence reasoning as the follow-up test above - no record exists to
+            // rate for a nonexistent hash, so this proves a graceful in-app reply rather than the
+            // null-ref crash HoroscopeChatFeedback used to hit when the stubbed lookup always
+            // returned null (see migration.md's chat-persistence entry).
             var url = "/api/Calculate/HoroscopeChatFeedback/AnswerHash/nonexistent-hash/FeedbackScore/1";
             var response = await _client.GetAsync(url);
             response.EnsureSuccessStatusCode();
 
             var json = JObject.Parse(await response.Content.ReadAsStringAsync());
-            Assert.Equal("Fail", json["Status"]!.ToString());
+            Assert.Equal("Pass", json["Status"]!.ToString());
+            var payload = (JObject)json["Payload"]!;
+            Assert.Contains("couldn't find", payload["Text"]!.ToString());
         }
     }
 }

@@ -126,8 +126,16 @@ namespace VedAstro.Library
         /// <summary>
         /// Convert longitude to LMT offset. Input longitude range -180 to 180.
         /// 15 degrees of longitude equals 1 hour of time offset from Greenwich.
+        /// Rounded to the nearest whole minute - DateTimeOffset (what every caller of this method
+        /// feeds the result into, via ToOffset/its constructor) only supports whole-minute offsets,
+        /// while raw longitude/15 is fractional to the second for almost any real longitude (e.g.
+        /// 103.8198deg -> 6h 55m 16.752s), which throws "Offset must be specified in whole minutes"
+        /// deep inside Time.StdToLmt/GetLmtDateTimeOffset. The sub-minute precision was never
+        /// actually observable anyway - LMT is only ever displayed via the "zzz" format (hh:mm, no
+        /// seconds), so rounding here is not a loss of real precision, just of an unrepresentable one.
         /// </summary>
-        public static TimeSpan LongitudeToLMTOffset(double longitudeDeg) => TimeSpan.FromHours(longitudeDeg / 15.0);
+        public static TimeSpan LongitudeToLMTOffset(double longitudeDeg) =>
+            TimeSpan.FromMinutes(Math.Round(TimeSpan.FromHours(longitudeDeg / 15.0).TotalMinutes));
 
         /// <summary>
         /// Converts a time offset back to longitude. Reverse of LongitudeToLMTOffset.
