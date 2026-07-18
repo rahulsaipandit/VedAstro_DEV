@@ -1,8 +1,7 @@
-﻿using Azure.Data.Tables;
-using Azure;
-using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.AspNetCore.Http;
 using VedAstro.Library;
 using System.Text.RegularExpressions;
+using System.Linq;
 
 namespace API
 {
@@ -15,7 +14,7 @@ namespace API
         /// <summary>
         /// if API key is present allows full speed call, else only allows slowed speed call except if browser
         /// </summary>
-        public static async Task<string> HandleCall(HttpRequestData incomingRequest, string fullParamString)
+        public static async Task<string> HandleCall(HttpRequest incomingRequest, string fullParamString)
         {
             // if browser then let call through
             if (IsBrowser(incomingRequest)) { return fullParamString; }
@@ -28,7 +27,7 @@ namespace API
                 if (APIKeyIsValid(apiKey)) //check if key is registered to user
                 {
                     // Call contains valid API key, allow full access
-                    // Make a record of the call count by API key (Azure Table Storage)
+                    // Make a record of the call count by API key (Postgres, was Azure Table Storage)
                     await RecordAPISubscriberCall(apiKey);
                 }
                 else
@@ -40,7 +39,6 @@ namespace API
                 return fullParamString;
             }
         }
-
 
 
 
@@ -58,32 +56,19 @@ namespace API
             {
                 return true;
             }
-            //// Get the table client for the UserDataList table
-            //var tableClient = AzureTable.UserDataList;
-
-            //try
-            //{
-            //    // Try to retrieve the entity with the matching API key
-            //    var entity = tableClient.Query<UserDataListEntity>(e => e.APIKey == apiKey).FirstOrDefault();
-
-            //    // If the entity is not null, the API key is valid
-            //    return entity != null;
-            //}
-            //catch (RequestFailedException ex)
-            //{
-            //    // If there's an error querying the table, assume the API key is not valid
-            //    return false;
-            //}
+            //// api key checking is paused, same as before migration -
+            //// see UserDataListEntity.APIKey / Repositories.UserData for the real lookup if
+            //// this gets un-paused later.
         }
 
 
         /// <summary>
         /// True if caller is a browser
         /// </summary>
-        private static bool IsBrowser(HttpRequestData incomingRequest)
+        private static bool IsBrowser(HttpRequest incomingRequest)
         {
             // Extract the User-Agent header
-            if (incomingRequest.Headers.TryGetValues("User-Agent", out var userAgentValues))
+            if (incomingRequest.Headers.TryGetValue("User-Agent", out var userAgentValues))
             {
                 var userAgent = userAgentValues.FirstOrDefault();
 
@@ -114,9 +99,7 @@ namespace API
         /// <summary>
         /// Determines whether the User-Agent string corresponds to a known browser.
         /// </summary>
-        /// <param name="userAgent">The User-Agent string from the HTTP request.</param>
-        /// <returns><c>true</c> if the User-Agent is a known browser; otherwise, <c>false</c>.</returns>
-        private static bool IsBrowserUserAgent(string userAgent)
+        private static bool IsBrowserUserAgent(string? userAgent)
         {
             if (string.IsNullOrEmpty(userAgent))
             {
@@ -130,17 +113,15 @@ namespace API
 
         /// <summary>
         /// Throttles API call processing for requests lacking a valid API key.
-        /// This method applies a delay based on the caller's IP address and their call frequency 
+        /// This method applies a delay based on the caller's IP address and their call frequency
         /// over the last 30 seconds, helping to mitigate abuse.
-        /// It retrieves a configured delay, counts recent calls from the IP, 
-        /// calculates the total delay, and applies it using Task.Delay 
+        /// It retrieves a configured delay, counts recent calls from the IP,
+        /// calculates the total delay, and applies it using Task.Delay
         /// to control the request rate.
         /// </summary>
-        /// <param name="incomingRequest">The incoming HTTP request data for IP extraction.</param>
-        /// <returns>A Task representing the asynchronous operation.</returns>
-        private static async Task ThrottleCallBasedOnIp(HttpRequestData incomingRequest)
+        private static async Task ThrottleCallBasedOnIp(HttpRequest incomingRequest)
         {
-            // Step 1: Get delay from environment settings 
+            // Step 1: Get delay from environment settings
             var threshold = GetCallCountThresholdFromSettings();
             if (threshold == 0) return; //(don't control if not specified, to support private servers)
 
@@ -163,20 +144,18 @@ namespace API
         }
 
         /// <summary>
-        /// record call by IP address to azure data table list
+        /// record call by IP address (Postgres, was Azure Table Storage)
         /// </summary>
         private static async Task RecordAnonymousIPCall(string ipAddress)
         {
-            var tableClient = AzureTable.AnonymousIpCallRecords; // Get the table client
-
-            // Create a new entity for the call
-            var entity = new TableEntity(ipAddress, Guid.NewGuid().ToString())
+            var entity = new AnonymousIpCallRecordEntity
             {
-                { "Timestamp", DateTime.UtcNow }
+                PartitionKey = ipAddress,
+                RowKey = Guid.NewGuid().ToString(),
+                Timestamp = DateTimeOffset.UtcNow
             };
 
-            // Add the entity to the table
-            await tableClient.AddEntityAsync(entity);
+            await Repositories.AnonymousIpCallRecords.AddAsync(entity);
         }
 
 
@@ -186,41 +165,28 @@ namespace API
         /// </summary>
         private static async Task<int> GetCallsInLast60Seconds(string ipAddress)
         {
-            var tableClient = AzureTable.AnonymousIpCallRecords; // Get the table client
-
             // Define the time windows
             var currentTime = DateTime.UtcNow;
             var timeWindowStart = currentTime.AddSeconds(-60);
             var oneHourAgo = currentTime.AddHours(-1);
 
             // Query for entities within the 1-hour window
-            var query = tableClient.QueryAsync<TableEntity>(entity =>
-                entity.PartitionKey == ipAddress && entity.GetDateTime("Timestamp") >= oneHourAgo);
+            var entities = Repositories.AnonymousIpCallRecords.Query()
+                .Where(entity => entity.PartitionKey == ipAddress && entity.Timestamp >= oneHourAgo)
+                .ToList();
 
-            var entitiesToDelete = new List<TableEntity>();
             var callsInLast60Seconds = 0;
 
-            await foreach (var entity in query)
+            foreach (var entity in entities)
             {
-                if (entity.GetDateTime("Timestamp") < timeWindowStart)
+                if (entity.Timestamp < timeWindowStart)
                 {
-                    entitiesToDelete.Add(entity);
+                    await Repositories.AnonymousIpCallRecords.DeleteAsync(entity.PartitionKey, entity.RowKey);
                 }
                 else
                 {
                     callsInLast60Seconds++;
                 }
-            }
-
-            // Delete old entities in a batch operation
-            if (entitiesToDelete.Count > 0)
-            {
-                var batch = new List<TableTransactionAction>();
-                foreach (var entity in entitiesToDelete)
-                {
-                    batch.Add(new TableTransactionAction(TableTransactionActionType.Delete, entity));
-                }
-                await tableClient.SubmitTransactionAsync(batch);
             }
 
             return callsInLast60Seconds;
@@ -231,7 +197,6 @@ namespace API
         /// <summary>
         /// Get delay in seconds from API server settings if specified else returns 0 seconds
         /// </summary>
-        /// <returns></returns>
         private static double GetCallCountThresholdFromSettings()
         {
             // Retrieve the environment variable
@@ -258,7 +223,7 @@ namespace API
         /// </summary>
         private static string ExtractAPIKey(ref string path)
         {
-            //if no param string continue as empty 
+            //if no param string continue as empty
             if (path == null) { return ""; }
 
             // Split the path into segments, preserving empty entries to keep leading/trailing slashes
@@ -283,37 +248,27 @@ namespace API
 
 
         /// <summary>
-        /// Records the API call count for a given API key in Azure Table Storage.
+        /// Records the API call count for a given API key (Postgres, was Azure Table Storage).
         /// </summary>
-        /// <param name="apiKey">The API key used in the request.</param>
         private static async Task RecordAPISubscriberCall(string apiKey)
         {
-            // Get a reference to the table
-            var tableClient = AzureTable.SubscriberCallRecords;
+            var existing = await Repositories.SubscriberCallRecords.GetAsync(apiKey, "");
 
-            // Create a new entity or update existing one
-            string partitionKey = apiKey;
-
-            // Try to retrieve the existing entity
-            TableEntity entity = null;
-            try
+            if (existing != null)
             {
-                var entityResponse = await tableClient.GetEntityAsync<TableEntity>(partitionKey, "");
-                entity = entityResponse.Value;
-
-                // Entity exists, increment the call count
-                int callCount = entity.GetInt32("CallCount") ?? 0;
-                entity["CallCount"] = callCount + 1;
-                await tableClient.UpdateEntityAsync(entity, entity.ETag, TableUpdateMode.Replace);
+                existing.CallCount++;
+                await Repositories.SubscriberCallRecords.UpsertAsync(existing);
             }
-            catch (RequestFailedException ex) when (ex.Status == 404)
+            else
             {
-                // Entity does not exist, create a new one
-                entity = new TableEntity(partitionKey, "")
+                var entity = new SubscriberCallRecordEntity
                 {
-                    { "CallCount", 1 }
+                    PartitionKey = apiKey,
+                    RowKey = "",
+                    CallCount = 1,
+                    Timestamp = DateTimeOffset.UtcNow
                 };
-                await tableClient.AddEntityAsync(entity);
+                await Repositories.SubscriberCallRecords.AddAsync(entity);
             }
         }
 

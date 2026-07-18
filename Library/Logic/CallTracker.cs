@@ -1,8 +1,5 @@
-﻿using System;
+using System;
 using System.Linq;
-using Azure;
-using Azure.Data.Tables;
-using VedAstro.Library;
 
 namespace VedAstro.Library;
 
@@ -14,10 +11,11 @@ public static class CallTracker
 
         try
         {
-            Pageable<CallStatusEntity> linqEntities = AzureTable.CallTracker.Query<CallStatusEntity>(call => call.PartitionKey == callerId);
+            var found = Repositories.CallTracker.Query()
+                .Where(call => call.PartitionKey == callerId)
+                .FirstOrDefault();
 
             //if old call found check if running else default false
-            var found = linqEntities?.FirstOrDefault();
             var foundIsRunning = found?.IsRunning ?? false;
 
             return foundIsRunning;
@@ -48,7 +46,7 @@ public static class CallTracker
         };
 
         //creates record if no exist, update if already there
-        AzureTable.CallTracker.UpsertEntity(customerEntity);
+        Repositories.CallTracker.UpsertAsync(customerEntity).GetAwaiter().GetResult();
 
     }
 
@@ -66,7 +64,7 @@ public static class CallTracker
         };
 
         //creates record if no exist, update if already there
-        AzureTable.CallTracker.UpsertEntity(customerEntity);
+        Repositories.CallTracker.UpsertAsync(customerEntity).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -75,14 +73,14 @@ public static class CallTracker
     public static void DeleteCall(string callerId)
     {
         // Query for the entity to be deleted
-        Pageable<CallStatusEntity> linqEntities = AzureTable.CallTracker.Query<CallStatusEntity>(call => call.PartitionKey == callerId);
-
-        var entityToDelete = linqEntities?.FirstOrDefault();
+        var entityToDelete = Repositories.CallTracker.Query()
+            .Where(call => call.PartitionKey == callerId)
+            .FirstOrDefault();
 
         if (entityToDelete != null)
         {
             // Delete the entity
-            AzureTable.CallTracker.DeleteEntity(entityToDelete.PartitionKey, entityToDelete.RowKey);
+            Repositories.CallTracker.DeleteAsync(entityToDelete.PartitionKey, entityToDelete.RowKey).GetAwaiter().GetResult();
         }
 
     }

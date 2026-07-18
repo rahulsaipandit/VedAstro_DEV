@@ -9,6 +9,11 @@
 
   <ItemGroup>
     <PackageReference Include="CsvHelper" Version="33.0.1" />
+    <!-- Direct reference (not inherited from Library anymore - see migration.md /
+         the Postgres migration removed Azure.Data.Tables from Library.csproj).
+         This one-off cleanup tool still talks to the legacy Azure Table directly;
+         out of scope for the Postgres migration per the plan. -->
+    <PackageReference Include="Azure.Data.Tables" Version="12.9.1" />
   </ItemGroup>
 
   <ItemGroup>

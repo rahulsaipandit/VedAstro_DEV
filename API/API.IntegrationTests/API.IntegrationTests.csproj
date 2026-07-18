@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+    Targets the SDK/runtime actually installed on this dev machine (only .NET 10 is present, no
+    .NET 8 shared runtime) rather than net8.0 like the rest of the solution - vstest's testhost.exe
+    apphost has a fixed framework-roll-forward policy baked in at build time that ignores a
+    consuming project's <RollForward> setting, so targeting net8.0 here fails to launch at all
+    ("You must install or update .NET to run this application") when no net8 runtime is installed.
+    All the referenced net8.0 projects (API.csproj/Library.csproj/VedAstro.Data.csproj) still
+    build and run fine when referenced from a net10.0 test project.
+    -->
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
+    <PackageReference Include="xunit" Version="2.7.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.7">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Xunit.SkippableFact" Version="1.4.13" />
+    <PackageReference Include="coverlet.collector" Version="6.0.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.10" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="3.9.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.10" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\API.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -404,6 +404,7 @@ HuggingFace/PersonNameEmbeddings-15k.csv
 HuggingFace/RawRequestStatistic.csv
 /Publisher/secrets.json
 /API/local.settings.json
+/API/appsettings.Development.json
 /API/host.json
 /API/APITools/APITools.cs
 /API/FrontDesk/MaintenanceAPI.cs

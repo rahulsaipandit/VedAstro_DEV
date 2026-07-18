@@ -1,11 +1,4 @@
-using Microsoft.Azure.Functions.Worker;
-using Microsoft.Azure.Functions.Worker.Http;
 using VedAstro.Library;
-using System.Net;
-using Microsoft.Bing.ImageSearch;
-using Microsoft.Bing.ImageSearch.Models;
-using Newtonsoft.Json.Linq;
-using Azure.Data.Tables;
 
 namespace API
 {
@@ -14,42 +7,37 @@ namespace API
     /// </summary>
     public static class SubscriptionAPI
     {
-
-        /// <summary>
-        /// scans through dates and rebuilds maps cache table
-        /// </summary>
-        [Function(nameof(RegisterSubscription))]
-        public static async Task<HttpResponseData> RegisterSubscription([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "RegisterSubscription/OwnerId/{ownerId}/APIKey/{apiKey}/")] HttpRequestData incomingRequest, string ownerId, string apiKey)
+        public static void MapSubscriptionEndpoints(this WebApplication app)
         {
-
-            try
+            app.MapGet("/api/RegisterSubscription/OwnerId/{ownerId}/APIKey/{apiKey}/", async (HttpContext context, string ownerId, string apiKey) =>
             {
-                // Search for existing record by OwnerId (PartitionKey)
-                var tableClient = AzureTable.UserDataList;
-                var filter = $"PartitionKey eq '{ownerId}'";
-                var query = tableClient.Query<UserDataListEntity>(filter: filter);
-                var existingRecord = query.FirstOrDefault();
-
-                if (existingRecord != null)
+                try
                 {
-                    // Update API key if record exists
-                    existingRecord.APIKey = apiKey;
-                    await tableClient.UpsertEntityAsync(existingRecord);
-                }
-                else
-                {
-                    // Return error if no record found
-                    return APITools.FailMessageJson("No record found for specified OwnerId", incomingRequest);
-                }
+                    // Search for existing record by OwnerId (PartitionKey)
+                    var existingRecord = Repositories.UserData.Query()
+                        .FirstOrDefault(row => row.PartitionKey == ownerId);
 
-                return APITools.PassMessageJson("API key updated successfully", incomingRequest);
-            }
-            catch (Exception e)
-            {
-                APILogger.Error(e, incomingRequest);
-                return APITools.FailMessageJson(e.Message, incomingRequest);
-            }
+                    if (existingRecord != null)
+                    {
+                        // Update API key if record exists
+                        existingRecord.APIKey = apiKey;
+                        await Repositories.UserData.UpsertAsync(existingRecord);
+                    }
+                    else
+                    {
+                        // Return error if no record found
+                        await APITools.FailMessageJson("No record found for specified OwnerId", context);
+                        return;
+                    }
+
+                    await APITools.PassMessageJson("API key updated successfully", context);
+                }
+                catch (Exception e)
+                {
+                    APILogger.Error(e, context.Request);
+                    await APITools.FailMessageJson(e.Message, context);
+                }
+            });
         }
-
     }
 }

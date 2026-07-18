@@ -1,7 +1,5 @@
 ﻿using System;
 using System.Linq;
-using Azure;
-using Azure.Data.Tables;
 using Newtonsoft.Json.Linq;
 using VedAstro.Library;
 
@@ -9,7 +7,7 @@ namespace VedAstro.Library;
 
 /// <summary>
 /// </summary>
-public class PresetQuestionEmbeddingsEntity : ITableEntity
+public class PresetQuestionEmbeddingsEntity : IPartitionRowKeyEntity
 {
 
     /// <summary>
@@ -30,11 +28,6 @@ public class PresetQuestionEmbeddingsEntity : ITableEntity
     /// mandatory
     /// </summary>
     public DateTimeOffset? Timestamp { get; set; }
-
-    /// <summary>
-    /// mandatory
-    /// </summary>
-    public ETag ETag { get; set; }
 
     public double[] GetEmbeddingsArray()
     {

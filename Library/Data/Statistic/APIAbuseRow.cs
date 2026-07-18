@@ -1,10 +1,8 @@
-﻿using Azure.Data.Tables;
-using Azure;
 using System;
 
 namespace VedAstro.Library
 {
-    public class APIAbuseRow : ITableEntity
+    public class APIAbuseRow : IPartitionRowKeyEntity
     {
         /// <summary>
         /// caller IP address
@@ -20,7 +18,6 @@ namespace VedAstro.Library
         /// Time of exceed
         /// </summary>
         public DateTimeOffset? Timestamp { get; set; }
-        public ETag ETag { get; set; }
 
     }
 

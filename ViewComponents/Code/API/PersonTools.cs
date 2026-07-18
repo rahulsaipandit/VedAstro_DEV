@@ -91,10 +91,21 @@ public class PersonTools
         //get location data from Azure Maps API
         var apiResult = await Tools.ReadFromServerJsonReply(url);
 
+        //Payload is expected to be a plain string (either the new person's ID, or an error message) -
+        //if the server ever sends back something else shaped (e.g. a JObject), .Value<string>() throws
+        //an opaque cast exception with no context, so extract defensively and log the raw shape instead
+        var payloadToken = apiResult.Payload?["Payload"];
+        if (payloadToken == null || payloadToken.Type is Newtonsoft.Json.Linq.JTokenType.Object or Newtonsoft.Json.Linq.JTokenType.Array)
+        {
+            Console.WriteLine($"BLZ: AddPerson got unexpected Payload shape from {url}:\n{apiResult.Payload}");
+            throw new Exception("FAILED TO ADD PERSON! (unexpected server response shape, see console)");
+        }
+        var payloadText = payloadToken.Value<string>();
+
         if (apiResult.IsPass) // All well
         {
             //get new person id out
-            var personId = apiResult.Payload["Payload"].Value<string>();
+            var personId = payloadText;
 
             //if pass, clear local person cache & show appropriate done message to user
             await HandleResultClearLocalCache(person.DisplayName, apiResult, "add", disableAlert);
@@ -105,8 +116,7 @@ public class PersonTools
         else
         {
             //TODO better logging
-            var errorText = apiResult.Payload["Payload"].Value<string>();
-            Console.WriteLine(errorText);
+            Console.WriteLine(payloadText);
             throw new Exception("FAILED TO ADD PERSON!");
         }
 

@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<AssemblyName>VedAstro.Data</AssemblyName>
+		<RootNamespace>VedAstro.Data</RootNamespace>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<LangVersion>preview</LangVersion>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- Exclude the nested test project's files from this project's own compilation - the
+		     default SDK glob (**/*.cs) would otherwise also pick up VedAstro.Data.Tests/*.cs
+		     since it lives in a subdirectory of this project. -->
+		<Compile Remove="VedAstro.Data.Tests\**" />
+		<Compile Remove="bin\**" />
+		<Compile Remove="obj\**" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!--
+		IMPORTANT: this project must NOT reference Library.csproj - Library references
+		VedAstro.Data (not the other way around) so that data-access static classes living
+		in Library (CallTracker.cs, ApiStatistic.cs, UserData.cs, LocationManager.cs) can
+		reach the repositories without creating a circular project reference.
+		-->
+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.10" />
+		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.10">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<!-- Design-time only (AppDbContextFactory), so `dotnet ef` reads the same appsettings.json
+		     as the real API host instead of a hardcoded placeholder connection string. -->
+		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.1" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
+	</ItemGroup>
+
+</Project>

@@ -1,89 +1,114 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Net;
-using System.Net.Http;
-using System.Threading.Tasks;
-using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.AspNetCore.Http;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using VedAstro.Library;
 
 namespace API
 {
     /// <summary>
-    /// Common HTTP request/response helpers used across the Azure Functions endpoints in FrontDesk.
-    /// Reconstructed from scratch - see Library/Logic/Calculate/CoreTime.cs header note in the Library
-    /// project for the equivalent situation there.
+    /// Common HTTP request/response helpers used across the minimal-API endpoints in FrontDesk.
+    /// Was HttpRequestData/HttpResponseData (Azure Functions Worker) based - now HttpContext
+    /// (ASP.NET Core) based, since the API host moved off Azure Functions.
     /// Response shape matches WebResult&lt;T&gt;'s expected wire format: {"Status": "Pass"/"Fail", "Payload": ...}
     /// </summary>
     public static class APITools
     {
         private static readonly HttpClient SharedHttpClient = new();
 
-        /// <summary>Wraps a JSON-serializable payload in a "Pass" envelope and returns it as the HTTP response.</summary>
-        public static HttpResponseData PassMessageJson(object payload, HttpRequestData incomingRequest)
+        //domain objects (e.g. HoroscopePrediction.RelatedBody) hold circular navigation references;
+        //default JToken.FromObject follows them and blows the stack with an uncatchable StackOverflowException,
+        //killing the whole worker process - ignoring reference loops here keeps that contained
+        private static readonly JsonSerializer PayloadSerializer = new() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore };
+
+        /// <summary>Wraps a JSON-serializable payload in a "Pass" envelope and writes it as the HTTP response.</summary>
+        public static async Task PassMessageJson(object payload, HttpContext context)
         {
             var root = new JObject
             {
                 ["Status"] = "Pass",
-                ["Payload"] = payload is JToken token ? token : JToken.FromObject(payload)
+                ["Payload"] = ToPayloadJson(payload)
             };
 
-            return WriteJsonResponse(incomingRequest, HttpStatusCode.OK, root);
+            await WriteJsonResponse(context, HttpStatusCode.OK, root);
+        }
+
+        //domain types implementing IToJson have a hand-written ToJson() with a wire shape
+        //(property names, enums-as-strings) that the client's matching FromJson() parsers expect -
+        //falling back to default reflection serialization silently produces a different shape
+        //(e.g. RelatedBody's "RelatedPlanets"/"RelatedHouses" instead of "Planets"/"Houses",
+        //enums as their raw int instead of name) that FromJson can't read, so honor ToJson() first
+        private static JToken ToPayloadJson(object payload)
+        {
+            switch (payload)
+            {
+                case null:
+                    return JValue.CreateNull();
+                case JToken token:
+                    return token;
+                case IToJson single:
+                    return single.ToJson();
+                case IEnumerable<IToJson> list:
+                    var array = new JArray();
+                    foreach (var item in list) { array.Add(item.ToJson()); }
+                    return array;
+                default:
+                    return JToken.FromObject(payload, PayloadSerializer);
+            }
         }
 
         /// <summary>"Pass" envelope with no payload, for calls that only need to signal success.</summary>
-        public static HttpResponseData PassMessageJson(HttpRequestData incomingRequest)
+        public static async Task PassMessageJson(HttpContext context)
         {
             var root = new JObject { ["Status"] = "Pass", ["Payload"] = "" };
-            return WriteJsonResponse(incomingRequest, HttpStatusCode.OK, root);
+            await WriteJsonResponse(context, HttpStatusCode.OK, root);
         }
 
-        /// <summary>Wraps an error message in a "Fail" envelope and returns it as the HTTP response.</summary>
-        public static HttpResponseData FailMessageJson(string message, HttpRequestData incomingRequest)
+        /// <summary>Wraps an error message in a "Fail" envelope and writes it as the HTTP response.</summary>
+        public static async Task FailMessageJson(string message, HttpContext context)
         {
             var root = new JObject { ["Status"] = "Fail", ["Payload"] = message };
-            return WriteJsonResponse(incomingRequest, HttpStatusCode.OK, root); //note: OK at transport level, "Fail" is an app-level status
+            await WriteJsonResponse(context, HttpStatusCode.OK, root); //note: OK at transport level, "Fail" is an app-level status
         }
 
         /// <summary>Wraps an exception's message in a "Fail" envelope.</summary>
-        public static HttpResponseData FailMessageJson(Exception exception, HttpRequestData incomingRequest) =>
-            FailMessageJson(exception.Message, incomingRequest);
+        public static async Task FailMessageJson(Exception exception, HttpContext context) =>
+            await FailMessageJson(exception.Message, context);
 
-        private static HttpResponseData WriteJsonResponse(HttpRequestData incomingRequest, HttpStatusCode statusCode, JObject body)
+        private static async Task WriteJsonResponse(HttpContext context, HttpStatusCode statusCode, JObject body)
         {
-            var response = incomingRequest.CreateResponse(statusCode);
-            response.Headers.Add("Content-Type", "application/json; charset=utf-8");
-            response.WriteString(body.ToString());
-            return response;
+            context.Response.StatusCode = (int)statusCode;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            await context.Response.WriteAsync(body.ToString());
         }
 
         /// <summary>Sends a raw SVG string directly to the caller (no JSON envelope).</summary>
-        public static HttpResponseData SendSvgToCaller(string svgContent, HttpRequestData incomingRequest) =>
-            Tools.SendFileToCaller(System.Text.Encoding.UTF8.GetBytes(svgContent), incomingRequest, "image/svg+xml");
+        public static async Task SendSvgToCaller(string svgContent, HttpContext context) =>
+            await Tools.SendFileToCaller(System.Text.Encoding.UTF8.GetBytes(svgContent), context, "image/svg+xml");
 
         /// <summary>Sends a raw plain-text string directly to the caller (no JSON envelope).</summary>
-        public static HttpResponseData SendTextToCaller(string textContent, HttpRequestData incomingRequest) =>
-            Tools.SendFileToCaller(System.Text.Encoding.UTF8.GetBytes(textContent), incomingRequest, "text/plain");
+        public static async Task SendTextToCaller(string textContent, HttpContext context) =>
+            await Tools.SendFileToCaller(System.Text.Encoding.UTF8.GetBytes(textContent), context, "text/plain");
 
         /// <summary>
         /// Sends any calculator result to the caller: strings/SVG-like data go raw, everything else
         /// is wrapped in the standard Pass/Payload JSON envelope.
         /// </summary>
-        public static HttpResponseData SendAnyToCaller(string calculatorName, object rawProcessedData, HttpRequestData incomingRequest)
+        public static async Task SendAnyToCaller(string calculatorName, object rawProcessedData, HttpContext context)
         {
             if (rawProcessedData is string stringData)
             {
-                return PassMessageJson(stringData, incomingRequest);
+                await PassMessageJson(stringData, context);
+                return;
             }
 
-            return PassMessageJson(rawProcessedData, incomingRequest);
+            await PassMessageJson(rawProcessedData, context);
         }
 
         /// <summary>Reads and parses the incoming request body as JSON.</summary>
-        public static async Task<JObject> ExtractDataFromRequestJson(HttpRequestData incomingRequest)
+        public static async Task<JObject> ExtractDataFromRequestJson(HttpContext context)
         {
-            using var reader = new StreamReader(incomingRequest.Body);
+            using var reader = new StreamReader(context.Request.Body);
             var rawBody = await reader.ReadToEndAsync();
 
             return string.IsNullOrWhiteSpace(rawBody) ? new JObject() : JObject.Parse(rawBody);
@@ -107,7 +132,7 @@ namespace API
                 return;
             }
 
-            //TODO: wire to real Azure Communication Services / SendGrid client when a connection string is configured
+            //TODO: wire to real SMTP/SendGrid client when a connection string is configured
             Console.WriteLine($"[APITools.SendEmail] Would send '{fileName}.{fileExtension}' to {receiverEmail}");
         }
 
@@ -116,7 +141,7 @@ namespace API
         {
             var result = new List<Person>();
 
-            foreach (var row in AzureTable.PersonList.Query<PersonListEntity>())
+            foreach (var row in Repositories.Person.GetAllAsync().GetAwaiter().GetResult())
             {
                 var gender = row.IsMale() ? Gender.Male : Gender.Female;
                 var lifeEvents = new List<LifeEvent>(); //life events intentionally skipped here for bulk-listing performance

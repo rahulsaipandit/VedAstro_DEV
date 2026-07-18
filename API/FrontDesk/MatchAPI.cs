@@ -1,5 +1,3 @@
-﻿using Microsoft.Azure.Functions.Worker;
-using Microsoft.Azure.Functions.Worker.Http;
 using VedAstro.Library;
 
 namespace API
@@ -7,27 +5,24 @@ namespace API
     /// <summary>
     /// API with match related stuff
     /// </summary>
-    public class MatchAPI
+    public static class MatchAPI
     {
-
-
-        [Function(nameof(FindMatch))]
-        public static async Task<HttpResponseData> FindMatch([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "FindMatch/PersonId/{personId}")] HttpRequestData incomingRequest, string personId)
+        public static void MapMatchEndpoints(this WebApplication app)
         {
+            app.MapGet("/api/FindMatch/PersonId/{personId}", async (HttpContext context, string personId) =>
+            {
+                var person = Tools.GetPersonById(personId);
 
-            var person = Tools.GetPersonById(personId);
+                var personList = await GetAllPersonByMatchStrength(person);
 
-            var personList = await GetAllPersonByMatchStrength(person);
+                var returnJson = PersonKutaScore.ToJsonList(personList);
 
-            var returnJson = PersonKutaScore.ToJsonList(personList);
-
-            return APITools.PassMessageJson(returnJson, incomingRequest);
+                await APITools.PassMessageJson(returnJson, context);
+            });
         }
 
 
-
         //PRIVATE
-
 
 
         /// <summary>

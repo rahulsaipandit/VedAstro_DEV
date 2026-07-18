@@ -340,7 +340,7 @@ namespace VedAstro.Library
             if (!skipLifeEvents)
             {
                 //get person life event list (partition key = person id)
-                var lifeEvents = AzureTable.LifeEventList?.Query<LifeEventRow>(call => call.PartitionKey == personId);
+                var lifeEvents = Repositories.LifeEvent.Query().Where(call => call.PartitionKey == personId);
 
                 //convert to list
                 var personJsonList = lifeEvents.Select(call => LifeEvent.FromAzureRow(call)).ToList();

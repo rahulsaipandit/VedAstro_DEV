@@ -14,7 +14,12 @@
     <None Remove="secrets.json" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- secrets.json is gitignored (developer-local, never committed - see .gitignore) and not
+       required: DatasetFactory.CreateDbContextFactory() reads the Postgres connection string via
+       the standard dotnet user-secrets store (Microsoft.Extensions.Configuration.UserSecrets +
+       UserSecretsId above), falling back to a local-dev placeholder if unset. Condition guards
+       the copy so a fresh checkout without this file still builds. -->
+  <ItemGroup Condition="Exists('secrets.json')">
     <Content Include="secrets.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
@@ -27,6 +32,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Library\Library.csproj" />
+    <ProjectReference Include="..\Data\VedAstro.Data.csproj" />
   </ItemGroup>
 
 </Project>

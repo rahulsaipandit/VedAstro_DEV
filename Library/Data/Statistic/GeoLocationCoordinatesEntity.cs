@@ -1,6 +1,4 @@
 ﻿using System;
-using Azure;
-using Azure.Data.Tables;
 using VedAstro.Library;
 
 namespace VedAstro.Library;
@@ -16,7 +14,7 @@ namespace VedAstro.Library;
 /// 5 decimal places: 1.11 m
 /// 6 decimal places: 0.111 m
 /// </summary>
-public class GeoLocationCoordinatesEntity : ITableEntity
+public class GeoLocationCoordinatesEntity : IPartitionRowKeyEntity
 {
     public static GeoLocationCoordinatesEntity Empty = new GeoLocationCoordinatesEntity();
 
@@ -46,6 +44,5 @@ public class GeoLocationCoordinatesEntity : ITableEntity
     /// <summary>
     /// mandatory
     /// </summary>
-    public ETag ETag { get; set; }
 
 }

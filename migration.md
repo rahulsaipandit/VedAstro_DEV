@@ -58,38 +58,89 @@ No Azurite layer — local dev runs against a real local Postgres instance
 
 ## Phased plan
 
-### Phase 1 — Decouple `Library` from Azure
+### Phase 1+2 (combined) — Decouple `Library` and move API off Azure Functions, per endpoint
 
-Split `Library/` into:
-- **Core** (pure C#, no Azure refs): calculation engine, chart rendering,
-  reference data. This is reused unchanged in the new architecture.
-- **Data access**: replace `AzureTable.cs` / `AzureCache.cs` with an
-  interface (e.g. `IPersonRepository`, `IChartImageCache`) so the storage
-  backend becomes swappable. Keep Azure implementations temporarily behind
-  the interface if useful for a staged rollout; add Postgres/EF Core (or
-  Dapper) implementations alongside.
-
-This phase can happen **before** touching the frontend or Functions host,
-and de-risks everything downstream.
-
-### Phase 2 — Move API off Azure Functions onto ASP.NET Core
-
-- Because every trigger is HTTP-only, each `API/FrontDesk/*API.cs` class's
-  `[Function("...")]` methods can be moved into ASP.NET Core minimal API
-  endpoints or controllers largely mechanically (swap
+Rather than fully splitting `Library` before touching the API host, migrate
+one `API/FrontDesk/*API.cs` endpoint at a time, doing both steps together
+for each:
+- **Data access**: for the tables that endpoint touches, replace
+  `AzureTable.cs` / `AzureCache.cs` calls with an interface (e.g.
+  `IPersonRepository`, `IChartImageCache`) backed by a Postgres/EF Core (or
+  Dapper) implementation. No Azure implementation kept behind the
+  interface — going straight to Postgres since the target is a clean
+  self-hosted setup, not a staged dual-backend rollout.
+- **Host**: move that endpoint's `[Function("...")]` method into an
+  ASP.NET Core minimal API endpoint or controller action (swap
   `[Function]`/`HttpRequestData` for `[HttpGet]`/`HttpContext` or minimal
   API lambdas).
-- Swap `Azure.Data.Tables` calls for the new repository interfaces from
-  Phase 1.
-- Replace chart-image blob caching with local disk or an S3-compatible
-  store (e.g. MinIO locally, any S3-compatible bucket in prod).
+- Replace chart-image blob caching with local disk storage.
 - Replace `Azure.AI.OpenAI` client with the plain OpenAI SDK (or whichever
   provider is used) — likely a small change since `Azure.AI.OpenAI` is
   already just a thin wrapper.
 - Replace `Azure.Communication.Email` with a standard SMTP client or a
   non-Azure transactional email provider.
 - Drop Azurite entirely — local dev now points at a local Postgres
-  instance (`docker run postgres` or native install), no emulator needed.
+  instance (native install on the self-hosted machine), no emulator
+  needed.
+
+As endpoints migrate, the remaining pure-calculation code in `Library`
+naturally ends up Azure-free (the "Core" split falls out of this process
+rather than being done as an upfront separate pass).
+
+### Status: Phase 1+2 — done and verified
+
+- **`Data/VedAstro.Data.csproj`**: `AppDbContext` (Npgsql) with 28 tables via a
+  generic `ConfigureKeyedTable<T>` helper (composite `partition_key`/`row_key`
+  columns, preserving Azure Table Storage's key shape exactly). Generic
+  `IKeyedRepository<T>`/`EfKeyedRepository<T>` (backed by
+  `IDbContextFactory<AppDbContext>` — a fresh short-lived context per
+  operation, not a shared instance, since `DbContext` isn't thread-safe and a
+  shared one gets corrupted after any failed save) plus ~28 named repository
+  interfaces. `IChartImageCache`/`LocalDiskChartImageCache` replaces
+  `AzureCache.cs`'s blob operations. Three migrations applied to the real
+  local Postgres 18 instance: `InitialCreate` (18 core tables),
+  `AddGeoLocationCacheTables` (7 tables), `AddMatchMLDatasetTables` (3
+  tables).
+- **`Library`**: Fully decoupled from Azure (`Azure.Data.Tables`,
+  `Azure.Storage.Blobs`, `Azure.AI.OpenAI`,
+  `Microsoft.Azure.Functions.Worker.Core` all removed). Static classes
+  (`CallTracker`, `Tools`, `ApiStatistic`, `UserData`, `LocationManager`) go
+  through a `Repositories` static locator (`Library/Logic/Repositories.cs`)
+  instead. `LocationManager.cs`'s geolocation cache tier is now fully wired
+  to Postgres (not stubbed). `ChatAPI.cs` had its dead Azure OpenAI helpers
+  removed and its `LOCAL_LLM_BASE_URL` routing no longer requires a Debug
+  build, so Chat is testable against a local LM Studio-style server.
+- **`API`**: Converted from Azure Functions Worker (net7) to ASP.NET Core
+  minimal API (net8), all 9 `FrontDesk/*.cs` files ported with identical
+  routes/verbs. `Program.cs` is `WebApplicationFactory`-testable.
+- **Testing (no browser needed)**: `Data/VedAstro.Data.Tests` —
+  159/159 passing against a real Testcontainers Postgres.
+  `API/API.IntegrationTests` — 17/17 passing, 3 skipped (Chat tests, unless
+  LM Studio is running). Documented in `CLAUDE.md`.
+- **`MatchMLPipeline`** (offline ML tooling, not part of the live
+  API/Website): also migrated off Azure Table Storage onto the same
+  repository pattern, since it shared entities with the API.
+
+### Known remaining items (not silently dropped)
+
+- **`LibraryTests`** — left broken by explicit decision: ~30+ tests
+  reference astrology calculation methods (Chara Dasa, several Ashtakavarga
+  yogas, eclipses, Ishta/Kashta scores, etc.) that don't exist in `Library`,
+  tracing back to old abandoned "WIP" commits. Unrelated to this migration;
+  implementing them would mean fabricating unverified domain math.
+- **Chat message history** (`ChatMessage`/`PresetQuestionEmbeddings`
+  persistence in `ChatAPI.cs`) stays an intentional no-op stub — out of
+  scope per an earlier decision. `HoroscopeFollowUpChat`/
+  `HoroscopeChatFeedback` can't fully succeed even with LM Studio running.
+- **`PersonShareList`** ported read-only (matches production — no write
+  path exists anywhere in the codebase today).
+- **Email** (`APITools.SendEmail`) stays a no-op/console-log stub — never
+  had real SMTP wiring, by decision.
+- **`Website_Mobile`** — untouched, explicitly out of scope.
+- **`MigrateGeoLocationData`** — given a minimal direct `Azure.Data.Tables`
+  reference to keep compiling; not migrated to Postgres (a one-off,
+  already-run data-cleanup script, low priority).
+- Nothing on this branch has been committed to git yet.
 
 ### Phase 3 — Replace Blazor WASM with React + TypeScript
 
@@ -110,19 +161,11 @@ and de-risks everything downstream.
 - Update `CLAUDE.md` local-dev instructions to describe the new (non-Azure)
   setup.
 
-## Open questions to settle before starting
+## Decisions
 
-- **Database choice**: Postgres is the default recommendation (mature EF
-  Core support, good fit for the relational-ish data currently modeled as
-  Table Storage entities). SQLite is an option if minimizing local-dev
-  setup matters more than production parity.
-- **Object storage**: local disk is simplest for a single-server deploy;
-  S3-compatible storage (MinIO locally, real S3/R2 in prod) if multi-instance
-  or cloud deployment is expected.
-- **Hosting target**: self-hosted VM/container vs. another cloud's PaaS —
-  affects how much of Phase 2's swap-in code needs to be
-  provider-agnostic vs. tailored to one platform.
-- **Migration order for Phase 1 vs 2**: could also do them together per
-  API endpoint (migrate one endpoint + its data access at a time) instead
-  of splitting Library fully first — worth deciding based on how much
-  parallel work is wanted.
+- **Database choice**: Postgres.
+- **Object storage**: local disk (chart image cache).
+- **Hosting target**: self-hosted on local computer.
+- **Migration order for Phase 1 vs 2**: done together, per API endpoint —
+  migrate one endpoint plus its data access at a time, rather than
+  splitting `Library` fully first before touching the API host.

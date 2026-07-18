@@ -1,17 +1,74 @@
-﻿using Microsoft.Azure.Functions.Worker;
-using Microsoft.Azure.Functions.Worker.Http;
 using VedAstro.Library;
 using Person = VedAstro.Library.Person;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace API
 {
     /// <summary>
-    /// API Functions related to Person Profiles
+    /// API Functions related to Person Profiles.
+    ///
+    /// NOTE on routes: these 6 methods have no `[Function]` attribute in the original codebase -
+    /// they were only reachable through OpenAPI.Calculate's reflection dispatcher
+    /// (`/api/Calculate/{calculatorName}/{*fullParamString}`), which is preserved as-is (see
+    /// OpenAPI.cs's SingleAPICallData, which still includes `typeof(PersonAPI)` in its method
+    /// lookup) - so AddPerson/GetPersonList/GetPersonListHash keep working through that generic
+    /// route exactly like before. DeletePerson/UpdatePerson/GetPerson, however, are called by
+    /// ViewComponents/Code/API/PersonTools.cs via DIRECT routes with no "Calculate/" prefix
+    /// (`/api/DeletePerson/...`, `/api/UpdatePerson`, `/api/GetPerson/...`) - those get their own
+    /// explicit minimal-API routes below, matching PersonTools.cs exactly.
     /// </summary>
-    public class PersonAPI
+    public static class PersonAPI
     {
+        public static void MapPersonEndpoints(this WebApplication app)
+        {
+            // GET /api/DeletePerson/OwnerId/{ownerId}/PersonId/{personId}
+            app.MapGet("/api/DeletePerson/OwnerId/{ownerId}/PersonId/{personId}", async (HttpContext context, string ownerId, string personId) =>
+            {
+                try
+                {
+                    var result = await DeletePerson(ownerId, personId);
+                    await APITools.PassMessageJson(result, context);
+                }
+                catch (Exception e)
+                {
+                    APILogger.Error(e, context.Request);
+                    await APITools.FailMessageJson(e, context);
+                }
+            });
+
+            // GET /api/GetPerson/OwnerId/{ownerId}/PersonId/{personId}
+            app.MapGet("/api/GetPerson/OwnerId/{ownerId}/PersonId/{personId}", async (HttpContext context, string ownerId, string personId) =>
+            {
+                try
+                {
+                    var result = await GetPerson(ownerId, personId);
+                    await APITools.PassMessageJson(result, context);
+                }
+                catch (Exception e)
+                {
+                    APILogger.Error(e, context.Request);
+                    await APITools.FailMessageJson(e, context);
+                }
+            });
+
+            // POST /api/UpdatePerson  (JSON body = Person.ToJson() shape)
+            app.MapPost("/api/UpdatePerson", async (HttpContext context) =>
+            {
+                try
+                {
+                    var requestJson = await APITools.ExtractDataFromRequestJson(context);
+                    var person = Person.FromJson(requestJson);
+
+                    var result = await UpdatePerson(person.OwnerId, person.Id, person.BirthTime, person.Name, person.Gender, person.Notes);
+                    await APITools.PassMessageJson(result, context);
+                }
+                catch (Exception e)
+                {
+                    APILogger.Error(e, context.Request);
+                    await APITools.FailMessageJson(e, context);
+                }
+            });
+        }
 
         #region PERSON
 
@@ -36,7 +93,7 @@ namespace API
             await AzureCache.DeleteCacheRelatedToPerson(newPerson);
 
             //creates record if no exist, update if already there
-            AzureTable.PersonList.UpsertEntity(newPerson.ToAzureRow());
+            await Repositories.Person.UpsertAsync(newPerson.ToAzureRow());
 
             //return ID of newly created person so caller can use it
             return newPerson.Id;
@@ -58,7 +115,7 @@ namespace API
             await AzureCache.DeleteCacheRelatedToPerson(personParsed);
 
             //person updated based on Person ID which is immutable
-            await AzureTable.PersonList?.UpsertEntityAsync(personParsed.ToAzureRow());
+            await Repositories.Person.UpsertAsync(personParsed.ToAzureRow());
 
             return "Updated!";
 
@@ -75,9 +132,8 @@ namespace API
         {
             //# get full person copy to place in recycle bin
             //query the database
-            var foundCalls = AzureTable.PersonList?.Query<PersonListEntity>(row => row.PartitionKey == ownerId && row.RowKey == personId);
-            //make into readable format
-            var personAzureRow = foundCalls?.FirstOrDefault();
+            var personAzureRow = Repositories.Person.Query()
+                .FirstOrDefault(row => row.PartitionKey == ownerId && row.RowKey == personId);
             var personToDelete = Person.FromAzureRow(personAzureRow);
 
             //# delete data related to person (NOT USER, PERSON PROFILE)
@@ -87,7 +143,7 @@ namespace API
             //await AzureTable.PersonListRecycleBin.UpsertEntityAsync(personAzureRow);
 
             //# do final delete from MAIN DATABASE
-            await AzureTable.PersonList.DeleteEntityAsync(ownerId, personId);
+            await Repositories.Person.DeleteAsync(ownerId, personId);
 
             return "Updated!";
 
@@ -103,7 +159,7 @@ namespace API
             await SwapUserId(ownerId, visitorId);
 
             //get raw person data from main person list (partial without life events)
-            var foundCalls = AzureTable.PersonList.Query<PersonListEntity>(call => call.PartitionKey == ownerId);
+            var foundCalls = Repositories.Person.Query().Where(call => call.PartitionKey == ownerId).ToList();
 
             //convert partial Person data to full Person with life events
             var personJsonList = new JArray();
@@ -123,7 +179,7 @@ namespace API
                 if (ownerId == "101" || ownerId == null) { return; }
 
                 //get all person's under visitor id
-                var visitorIdPersons = AzureTable.PersonList.Query<PersonListEntity>(call => call.PartitionKey == visitorId);
+                var visitorIdPersons = Repositories.Person.Query().Where(call => call.PartitionKey == visitorId).ToList();
 
                 //if no records, then end here
                 if (!visitorIdPersons.Any()) { return; }
@@ -135,10 +191,10 @@ namespace API
                     //overwrite visitor id with user id
                     var modifiedPerson = personOriRecord.Clone();
                     modifiedPerson.PartitionKey = ownerId;
-                    AzureTable.PersonList.AddEntity(modifiedPerson);
+                    await Repositories.Person.AddAsync(modifiedPerson);
 
-                    //2: delete original "visitor" record 
-                    await AzureTable.PersonList.DeleteEntityAsync(personOriRecord.PartitionKey, personOriRecord.RowKey);
+                    //2: delete original "visitor" record
+                    await Repositories.Person.DeleteAsync(personOriRecord.PartitionKey, personOriRecord.RowKey);
                 }
 
             }
@@ -187,71 +243,8 @@ namespace API
             return foundPerson;
         }
 
-        /// <summary>
-        /// Intelligible gets a person's image
-        /// </summary>
-        //public static async Task<byte[]> GetPersonImage(string personId)
-        //{
-
-        //    //start with backup person if all fails
-        //    var personToImage = Person.Empty;
-        //    BlobClient imageFile = null;
-
-        //    try
-        //    {
-        //        //OPTION 1
-        //        //check directly if custom uploaded image exist, if got end here
-        //        var imageFound = await Tools.IsCustomPersonImageExist(personId);
-
-        //        if (imageFound)
-        //        {
-        //            imageFile = Tools.GetPersonImage(personId);
-        //            using var stream = new MemoryStream();
-        //            await imageFile.DownloadToAsync(stream);
-        //            stream.Position = 0;
-        //            var byteArray = stream.ToArray();
-        //            return byteArray;
-        //        }
-
-        //        //OPTION 2 : GET AZURE SEARCHED IMAGED
-        //        else
-        //        {
-        //            //get the person record by ID
-        //            personToImage = Tools.GetPersonById(personId);
-        //            byte[] foundImage = await Tools.GetSearchImage(personToImage); //gets most probable fitting person image
-
-        //            //save copy of image under profile, so future calls don't spend BING search quota
-        //            await Tools.SaveNewPersonImage(personToImage.Id, foundImage);
-
-        //            //return gotten image as is
-        //            return foundImage;
-
-        //        }
-
-        //    }
-
-        //    //OPTION 3 : USE ANONYMOUS IMAGE
-        //    //used only when bing and saved records fail
-        //    catch (Exception e)
-        //    {
-
-        //        //get default male or female image
-        //        imageFile = personToImage.Gender == Gender.Male ? Tools.GetPersonImage("male") : Tools.GetPersonImage("female");
-
-        //        //save copy of image under profile, so future calls don't spend BING search quota
-        //        await Tools.SaveNewPersonImage(personToImage.Id, imageFile);
-
-        //        //send person image to caller
-        //        using var stream = new MemoryStream();
-        //        await imageFile.DownloadToAsync(stream);
-        //        stream.Position = 0;
-        //        var byteArray = stream.ToArray();
-        //        return byteArray;
-        //    }
-
-
-        //}
-
+        // GetPersonImage: was already fully commented out (dead code, Bing image search + blob
+        // cached avatar) before this migration - left out entirely since Azure.Storage.Blobs is gone.
 
         #endregion
     }

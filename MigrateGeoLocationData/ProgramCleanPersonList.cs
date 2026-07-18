@@ -39,7 +39,11 @@ namespace MigrateGeoLocationData
             string combinedFilter = $"{partitionKeyFilter} and {timestampFilter}";
 
             // Query the entities
-            AsyncPageable<TableEntity> queryResults = AzureTable.PersonList.QueryAsync<TableEntity>(filter: combinedFilter);
+            // NOTE: AzureTable.PersonList (Library) was removed by the Postgres migration -
+            // this one-off cleanup tool is out of scope for that migration (per migration.md),
+            // so it now builds its own direct Azure Table client instead.
+            var personListTableClient = new TableServiceClient(Secrets.VedAstroCentralStorageConnStr).GetTableClient("PersonList");
+            AsyncPageable<TableEntity> queryResults = personListTableClient.QueryAsync<TableEntity>(filter: combinedFilter);
 
             int deleteCount = 0;
 
@@ -48,7 +52,7 @@ namespace MigrateGeoLocationData
             {
                 try
                 {
-                    await AzureTable.PersonList.DeleteEntityAsync(entity.PartitionKey, entity.RowKey, ETag.All);
+                    await personListTableClient.DeleteEntityAsync(entity.PartitionKey, entity.RowKey, ETag.All);
                     deleteCount++;
                     Console.WriteLine($"Deleted entity with RowKey: {entity.RowKey}");
                 }

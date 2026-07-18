@@ -1,10 +1,10 @@
+using Microsoft.AspNetCore.Http;
 using VedAstro.Library;
-using Microsoft.Azure.Functions.Worker.Http;
 
 namespace API;
 
 /// <summary>
-/// Custom simple logger for API, auto log to Azure Data Table
+/// Custom simple logger for API, auto log to Postgres (was Azure Data Table).
 /// </summary>
 public static class APILogger
 {
@@ -12,7 +12,7 @@ public static class APILogger
     /// <summary>
     /// Adds error log to OpenAPIErrorBook
     /// </summary>
-    public static void Error(Exception exception, HttpRequestData incomingRequest = null)
+    public static void Error(Exception exception, HttpRequest? incomingRequest = null)
     {
         try
         {
@@ -24,12 +24,12 @@ public static class APILogger
                 PartitionKey = incomingRequest?.GetCallerIp()?.ToString() ?? "0.0.0.0",
                 RowKey = DateTimeOffset.UtcNow.Ticks.ToString(),
                 Branch = ThisAssembly.Version,
-                URL = incomingRequest?.Url.ToString() ?? "no URL",
+                URL = incomingRequest != null ? $"{incomingRequest.Path}{incomingRequest.QueryString}" : "no URL",
                 Message = exceptionData
             };
 
             //creates record if no exist, update if already there
-            AzureTable.OpenAPIErrorBook.UpsertEntity(errorLog);
+            Repositories.OpenAPIErrorBook.UpsertAsync(errorLog).GetAwaiter().GetResult();
 
         }
         catch (Exception deeperException)
@@ -40,7 +40,7 @@ public static class APILogger
             Console.WriteLine(deeperException.Message);
         }
 
-        
+
     }
 
 }

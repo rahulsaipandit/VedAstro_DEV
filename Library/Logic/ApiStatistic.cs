@@ -1,16 +1,20 @@
-﻿using Azure.Data.Tables;
 using System;
-using System.Linq;
-using System.Linq.Expressions;
-using Microsoft.Azure.Functions.Worker.Http;
 using System.ComponentModel;
-using ScottPlot.Palettes;
-using System.Net;
+using System.Linq;
 using System.Threading.Tasks;
-using Azure;
+using Microsoft.AspNetCore.Http;
 
 namespace VedAstro.Library
 {
+    /// <summary>
+    /// Was HttpRequestData (Azure Functions Worker) based - now HttpRequest (ASP.NET Core),
+    /// since the API host moved off Azure Functions. Data access moved from directly-built
+    /// Azure TableServiceClient/TableClient fields (bypassing AzureTable.cs entirely) to the
+    /// Repositories locator (Postgres-backed). The 6 statistic loggers below were previously
+    /// declared but never wired up/reachable (their table client fields were never assigned) -
+    /// they're now real, working loggers, though still not called from Log() by default (kept
+    /// commented out exactly as before, so behavior doesn't change unless a human opts back in).
+    /// </summary>
     public static class ApiStatistic
     {
         /// <summary>
@@ -18,31 +22,12 @@ namespace VedAstro.Library
         /// </summary>
         public record GeoLocationRawAPI(dynamic MainRow, dynamic MetadataRow);
 
-        private static readonly TableServiceClient ipAddressServiceClient;
-        private static readonly TableServiceClient webPageServiceClient;
-        private static readonly TableServiceClient requestUrlStatisticServiceClient;
-        private static readonly TableServiceClient subscriberStatisticServiceClient;
-        private static readonly TableServiceClient userAgentStatisticServiceClient;
-        private static readonly TableServiceClient rawRequestStatisticServiceClient;
-
-        private static readonly TableClient ipAddressStatisticTableClient;
-        private static readonly TableClient webPageStatisticTableClient;
-        private static readonly TableClient requestUrlStatisticTableClient;
-        private static readonly TableClient subscriberStatisticTableClient;
-        private static readonly TableClient userAgentStatisticTableClient;
-        private static readonly TableClient rawRequestStatisticTableClient;
-
-
-
-
         //-------------------------------------
-
 
         /// <summary>
         /// Logs IP to for statistics
         /// </summary>
-
-        public static void LogIpAddress(HttpRequestData incomingRequest)
+        public static void LogIpAddress(HttpRequest incomingRequest)
         {
             // Step 1: Get the current month and year in the format "yyyy-MM"
             var todayRecord = DateTime.Now.ToString("yyyy-MM");
@@ -51,9 +36,8 @@ namespace VedAstro.Library
             var ipAddress = incomingRequest?.GetCallerIp()?.ToString() ?? "0.0.0.0";
 
             // Step 3: Check if the IP address already exists in the table
-            Expression<Func<IpAddressStatisticEntity, bool>> expression =
-                call => call.PartitionKey == ipAddress && call.RowKey == todayRecord;
-            var recordFound = ipAddressStatisticTableClient.Query(expression).FirstOrDefault();
+            var recordFound = Repositories.IpAddressStatistic.Query()
+                .FirstOrDefault(call => call.PartitionKey == ipAddress && call.RowKey == todayRecord);
 
             // If the IP address exists, update call statistics
             if (recordFound != null)
@@ -132,7 +116,7 @@ namespace VedAstro.Library
                 }
 
                 // Update the entity in the table
-                ipAddressStatisticTableClient.UpsertEntityAsync(recordFound);
+                Repositories.IpAddressStatistic.UpsertAsync(recordFound).GetAwaiter().GetResult();
             }
             else
             {
@@ -140,7 +124,7 @@ namespace VedAstro.Library
                 var newRow = new IpAddressStatisticEntity();
                 newRow.PartitionKey = Tools.CleanAzureTableKey(ipAddress);
                 newRow.RowKey = todayRecord;
-                ipAddressStatisticTableClient.AddEntity(newRow);
+                Repositories.IpAddressStatistic.AddAsync(newRow).GetAwaiter().GetResult();
             }
 
         }
@@ -149,14 +133,11 @@ namespace VedAstro.Library
             //get month and year in correct format 2019-10
             var todayRecord = DateTime.Now.ToString("yyyy-MM");
 
-            //# get ip address out
-            //var ipAddress = incomingRequest?.GetCallerIp()?.ToString() ?? "0.0.0.0";
             var cleanWebPageUrl = Tools.CleanAzureTableKey(webPage);
-            //# check if already exist
-            Expression<Func<WebPageStatisticEntity, bool>> expression = call => call.PartitionKey == cleanWebPageUrl && call.RowKey == todayRecord;
 
             //execute search
-            var recordFound = webPageStatisticTableClient.Query(expression).FirstOrDefault();
+            var recordFound = Repositories.WebPageStatistic.Query()
+                .FirstOrDefault(call => call.PartitionKey == cleanWebPageUrl && call.RowKey == todayRecord);
 
             //# if existed, update call count
             var isExist = recordFound != null;
@@ -164,7 +145,7 @@ namespace VedAstro.Library
             {
                 //update row
                 recordFound.CallCount = ++recordFound.CallCount; //increment call count
-                webPageStatisticTableClient.UpsertEntity(recordFound);
+                Repositories.WebPageStatistic.UpsertAsync(recordFound).GetAwaiter().GetResult();
             }
 
             //# if not exist, make new log
@@ -176,15 +157,15 @@ namespace VedAstro.Library
                 //get month and year in correct format 2019-10
                 newRow.RowKey = todayRecord;
                 newRow.CallCount = 1;
-                webPageStatisticTableClient.AddEntity(newRow);
+                Repositories.WebPageStatistic.AddAsync(newRow).GetAwaiter().GetResult();
             }
         }
 
-        public static void LogRequestUrl(HttpRequestData incomingRequest)
+        public static void LogRequestUrl(HttpRequest incomingRequest)
         {
 
             //# get request URL
-            var requestUrl = incomingRequest?.Url.AbsolutePath ?? "no URL";
+            var requestUrl = incomingRequest?.Path.ToString() ?? "no URL";
 
             //get month and year in correct format 2019-10
             var todayRecord = DateTime.Now.ToString("yyyy-MM");
@@ -192,10 +173,10 @@ namespace VedAstro.Library
             //# check if URL already exist
             //make a search for ip address stored under row key
             var cleanAzureTableKey = Tools.CleanAzureTableKey(requestUrl, "-").Truncate(100); //keep short as not overcrowd
-            Expression<Func<RequestUrlStatisticEntity, bool>> expression = call => call.PartitionKey == cleanAzureTableKey && call.RowKey == todayRecord;
 
             //execute search
-            var recordFound = requestUrlStatisticTableClient.Query(expression).FirstOrDefault();
+            var recordFound = Repositories.RequestUrlStatistic.Query()
+                .FirstOrDefault(call => call.PartitionKey == cleanAzureTableKey && call.RowKey == todayRecord);
 
             //# if existed, update call count
             var isExist = recordFound != null;
@@ -203,7 +184,7 @@ namespace VedAstro.Library
             {
                 //update row
                 recordFound.CallCount = ++recordFound.CallCount; //increment call count
-                requestUrlStatisticTableClient.UpsertEntity(recordFound);
+                Repositories.RequestUrlStatistic.UpsertAsync(recordFound).GetAwaiter().GetResult();
             }
 
             //# if not exist, make new log
@@ -215,11 +196,11 @@ namespace VedAstro.Library
                 //get month and year in correct format 2019-10
                 newRow.RowKey = todayRecord;
                 newRow.CallCount = 1;
-                requestUrlStatisticTableClient.AddEntity(newRow);
+                Repositories.RequestUrlStatistic.AddAsync(newRow).GetAwaiter().GetResult();
             }
         }
 
-        public static void LogSubscriber(HttpRequestData incomingRequest)
+        public static void LogSubscriber(HttpRequest incomingRequest)
         {
             //get host address as main ID of record
             var host = incomingRequest.ExtractHostAddress();
@@ -230,12 +211,10 @@ namespace VedAstro.Library
             //# check if URL already exist
             //make a search for ip address stored under row key
             var cleanHostAddress = Tools.CleanAzureTableKey(host, "|");
-            Expression<Func<RequestUrlStatisticEntity, bool>> expression = call =>
-                    call.PartitionKey == cleanHostAddress &&
-                    call.RowKey == currentDate;
 
             //execute search
-            var recordFound = subscriberStatisticTableClient.Query(expression).FirstOrDefault();
+            var recordFound = Repositories.SubscriberStatistic.Query()
+                .FirstOrDefault(call => call.PartitionKey == cleanHostAddress && call.RowKey == currentDate);
 
             //# if existed, update call count
             var isExist = recordFound != null;
@@ -243,7 +222,7 @@ namespace VedAstro.Library
             {
                 //update row
                 recordFound.CallCount = ++recordFound.CallCount; //increment call count
-                subscriberStatisticTableClient.UpsertEntity(recordFound);
+                Repositories.SubscriberStatistic.UpsertAsync(recordFound).GetAwaiter().GetResult();
             }
 
             //# if not exist, make new log
@@ -255,16 +234,16 @@ namespace VedAstro.Library
                 newRow.RowKey = currentDate;
                 newRow.CallCount = 1; //start with 1
                 //save to db
-                subscriberStatisticTableClient.AddEntity(newRow);
+                Repositories.SubscriberStatistic.AddAsync(newRow).GetAwaiter().GetResult();
             }
         }
 
-        public static void LogUserAgent(HttpRequestData incomingRequest)
+        public static void LogUserAgent(HttpRequest incomingRequest)
         {
             //get host address as main ID of record
-            var requestHeaderList = incomingRequest.Headers.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
-            requestHeaderList.TryGetValue("User-Agent", out var userAgentValues);
-            var userAgent = userAgentValues?.FirstOrDefault() ?? "no User-Agent";
+            var userAgent = incomingRequest.Headers.TryGetValue("User-Agent", out var userAgentValues)
+                ? userAgentValues.FirstOrDefault() ?? "no User-Agent"
+                : "no User-Agent";
 
             //get date that this record would be in (Row Key)
             var currentDate = DateTime.Now.ToString("yyyy-MM");
@@ -272,10 +251,10 @@ namespace VedAstro.Library
             //# check if User-Agent already exist
             //make a search for ip address stored under row key
             var cleanUserAgent = Tools.CleanAzureTableKey(userAgent, "|");
-            Expression<Func<UserAgentStatisticEntity, bool>> expression = call => call.PartitionKey == cleanUserAgent && call.RowKey == currentDate;
 
             //execute search
-            var recordFound = userAgentStatisticTableClient.Query(expression).FirstOrDefault();
+            var recordFound = Repositories.UserAgentStatistic.Query()
+                .FirstOrDefault(call => call.PartitionKey == cleanUserAgent && call.RowKey == currentDate);
 
             //# if existed, update call count
             var isExist = recordFound != null;
@@ -283,7 +262,7 @@ namespace VedAstro.Library
             {
                 //update row
                 recordFound.CallCount = ++recordFound.CallCount; //increment call count
-                userAgentStatisticTableClient.UpsertEntity(recordFound);
+                Repositories.UserAgentStatistic.UpsertAsync(recordFound).GetAwaiter().GetResult();
             }
 
             //# if not exist, make new log
@@ -295,7 +274,7 @@ namespace VedAstro.Library
                 newRow.RowKey = currentDate;
                 newRow.CallCount = 1; //start with 1
                 //save to db
-                userAgentStatisticTableClient.AddEntity(newRow);
+                Repositories.UserAgentStatistic.AddAsync(newRow).GetAwaiter().GetResult();
             }
         }
 
@@ -303,22 +282,16 @@ namespace VedAstro.Library
         /// Makes raw full header log of what ever that comes in
         /// NOTE: high cost carefully use
         /// </summary>
-        public static void LogRawRequest(HttpRequestData incomingRequest)
+        public static void LogRawRequest(HttpRequest incomingRequest)
         {
             //step 1: extract needed data from request
             var newRow = new RawRequestStatisticEntity();
 
-            //convert to list
-            var requestHeaderList = incomingRequest.Headers.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
-
-            for (int i = 0; i < requestHeaderList.Count; i++)
+            for (int i = 0; i < incomingRequest.Headers.Count; i++)
             {
-                var currentHeader = requestHeaderList.ElementAt(i);
+                var currentHeader = incomingRequest.Headers.ElementAt(i);
                 var currentHeaderKey = currentHeader.Key;
-                string currentValue = Tools.ListToString(currentHeader.Value.ToList());
-
-                //debug print
-                //Console.WriteLine($"{currentHeaderKey}:{currentValue}");
+                string currentValue = string.Join(",", currentHeader.Value.ToArray());
 
                 //match with correct header based on attribute and fill in the value
                 // Get all properties of the current instance
@@ -336,13 +309,12 @@ namespace VedAstro.Library
 
             //step 2: generate hash to identify the data
             newRow.PartitionKey = incomingRequest?.GetCallerIp()?.ToString() ?? "no ip";
-            //newRow.PartitionKey = newRow.CalculateCombinedHash();
-            var url = incomingRequest.Url.ToString() ?? "no URL";
+            var url = incomingRequest != null ? $"{incomingRequest.Path}{incomingRequest.QueryString}" : "no URL";
             newRow.RowKey = Tools.CleanAzureTableKey(url, "|"); //place url
 
             //step 3: add entry to database
             //TODO check if exist before overwrite
-            rawRequestStatisticTableClient.UpsertEntity(newRow);
+            Repositories.RawRequestStatistic.UpsertAsync(newRow).GetAwaiter().GetResult();
         }
 
         private static bool IsLoggingEnabled()
@@ -366,7 +338,7 @@ namespace VedAstro.Library
             return false;
         }
 
-        public static void LogCallInfo(HttpRequestData incomingRequest)
+        public static void LogCallInfo(HttpRequest incomingRequest)
         {
             // Only continue if logging is enabled
             if (!IsLoggingEnabled())
@@ -376,8 +348,10 @@ namespace VedAstro.Library
 
             // Step 1: Extract needed data from request
             var callerIp = incomingRequest?.GetCallerIp()?.ToString() ?? "no ip";
-            var userAgent = incomingRequest.Headers.FirstOrDefault(x => x.Key.Equals("User-Agent", StringComparison.OrdinalIgnoreCase)).Value.FirstOrDefault() ?? "no User-Agent";
-            var requestUrl = incomingRequest?.Url.AbsolutePath ?? "no URL";
+            var userAgent = incomingRequest.Headers.TryGetValue("User-Agent", out var userAgentValues)
+                ? userAgentValues.FirstOrDefault() ?? "no User-Agent"
+                : "no User-Agent";
+            var requestUrl = incomingRequest?.Path.ToString() ?? "no URL";
 
             // Step 3: Create a new log entry
             var callInfoEntity = new CallInfoStatisticEntity
@@ -390,21 +364,10 @@ namespace VedAstro.Library
             };
 
             // Step 4: Add the log entry to the database
-            AzureTable.CallInfoStatistic.AddEntity(callInfoEntity);
+            Repositories.CallInfoStatistic.AddAsync(callInfoEntity).GetAwaiter().GetResult();
         }
 
-        // Define the CallInfoStatisticEntity class
-        public class CallInfoStatisticEntity : ITableEntity
-        {
-            public string UserAgent { get; set; }
-            public string RequestUrl { get; set; }
-            public string PartitionKey { get; set; }
-            public string RowKey { get; set; }
-            public DateTimeOffset? Timestamp { get; set; }
-            public ETag ETag { get; set; }
-        }
-
-        public static void Log(HttpRequestData incomingRequest)
+        public static void Log(HttpRequest incomingRequest)
         {
             ApiStatistic.LogCallInfo(incomingRequest);
             //ApiStatistic.LogIpAddress(incomingRequest);

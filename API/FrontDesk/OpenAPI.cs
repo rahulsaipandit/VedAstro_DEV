@@ -1,91 +1,66 @@
-﻿using VedAstro.Library;
-using Microsoft.Azure.Functions.Worker;
-using Microsoft.Azure.Functions.Worker.Http;
 using System.Reflection;
-
+using VedAstro.Library;
 
 namespace API
 {
     public static class OpenAPI
     {
-
-        //.../Calculate/Karana/Location/Singapore/Time/23:59/31/12/2000/+08:00
-        private const string CalculateRoute = $"{nameof(Calculate)}/{{calculatorName}}/{{*fullParamString}}"; //* that captures the rest of the URL path
-
-        [Function(nameof(ListAllCalls))]
-        public static async Task<HttpResponseData> ListAllCalls(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "ListAllCalls")] HttpRequestData incomingRequest
-        )
+        public static void MapOpenApiEndpoints(this WebApplication app)
         {
-            var apiCallListJson = OpenAPIMetadata.FromMethodInfoList();
-
-            return APITools.PassMessageJson(apiCallListJson, incomingRequest);
-        }
-
-        /// <summary>
-        /// Gives hash of all calls f
-        /// </summary>
-        [Function(nameof(AllCallsHash))]
-        public static async Task<HttpResponseData> AllCallsHash(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "AllCallsHash")] HttpRequestData incomingRequest
-        )
-        {
-            //get all calls
-            List<OpenAPIMetadata>? apiCallListJson = OpenAPIMetadata.FromMethodInfoList();
-
-            //generate hash for the calls and return to caller
-            var hash = Tools.GenerateHashCode(apiCallListJson);
-
-            return APITools.PassMessageJson(hash, incomingRequest);
-        }
-
-        /// <summary>
-        /// Main Open API method to handle all calls
-        /// /.../Calculator/DistanceBetweenPlanets/PlanetName/Sun/PlanetName/Moon/Location/Singapore/Time/23:59/31/12/2000/+08:00
-        /// </summary>
-        [Function(nameof(Calculate))]
-        public static async Task<HttpResponseData> Calculate([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = CalculateRoute)] HttpRequestData incomingRequest,
-        string calculatorName,
-        string fullParamString
-        )
-        {
-            //if API key is present allows full speed call, else only allows slowed speed call except if browser
-            fullParamString = await ThrottleManager.HandleCall(incomingRequest, fullParamString);
-
-            try
+            app.MapGet("/api/ListAllCalls", async (HttpContext context) =>
             {
-                //0 : LOG CALL : used later for throttle limit
-                //ApiStatistic.Log(incomingRequest); //logger
+                var apiCallListJson = OpenAPIMetadata.FromMethodInfoList();
+                await APITools.PassMessageJson(apiCallListJson, context);
+            });
 
-                //process call smartly
-                var rawProcessedData = await HandleOpenAPICalls(calculatorName, fullParamString);
+            app.MapGet("/api/AllCallsHash", async (HttpContext context) =>
+            {
+                List<OpenAPIMetadata>? apiCallListJson = OpenAPIMetadata.FromMethodInfoList();
+                var hash = Tools.GenerateHashCode(apiCallListJson);
+                await APITools.PassMessageJson(hash, context);
+            });
 
-                // Send data to the caller
-                // Some calculators return SVG, so need to send to caller directly without "Payload" wrapper
-                switch (calculatorName)
+            //.../Calculate/DistanceBetweenPlanets/PlanetName/Sun/PlanetName/Moon/Location/Singapore/Time/23:59/31/12/2000/+08:00
+            app.MapGet("/api/Calculate/{calculatorName}/{*fullParamString}", async (HttpContext context, string calculatorName, string? fullParamString) =>
+            {
+                fullParamString ??= "";
+
+                //if API key is present allows full speed call, else only allows slowed speed call except if browser
+                fullParamString = await ThrottleManager.HandleCall(context.Request, fullParamString);
+
+                try
                 {
-                    // Handle SVG string
-                    case nameof(VedAstro.Library.Calculate.SkyChart):
-                    case nameof(VedAstro.Library.Calculate.SouthIndianChart):
-                    case nameof(VedAstro.Library.Calculate.NorthIndianChart):
-                        //send direct as raw SVG image
-                        return Tools.SendFileToCaller(System.Text.Encoding.UTF8.GetBytes((string)rawProcessedData), incomingRequest, "image/svg+xml");
-                    // CSV string
-                    case nameof(VedAstro.Library.Calculate.GenerateTimeListCSV):
-                        //send direct as raw CSV file
-                        return Tools.SendFileToCaller(System.Text.Encoding.UTF8.GetBytes((string)rawProcessedData), incomingRequest, "text/csv");
-                    default:
-                        return APITools.SendAnyToCaller(calculatorName, rawProcessedData, incomingRequest);
+                    //process call smartly
+                    var rawProcessedData = await HandleOpenAPICalls(calculatorName, fullParamString);
+
+                    // Send data to the caller
+                    // Some calculators return SVG, so need to send to caller directly without "Payload" wrapper
+                    switch (calculatorName)
+                    {
+                        // Handle SVG string
+                        case nameof(Calculate.SkyChart):
+                        case nameof(Calculate.SouthIndianChart):
+                        case nameof(Calculate.NorthIndianChart):
+                            //send direct as raw SVG image
+                            await Tools.SendFileToCaller(System.Text.Encoding.UTF8.GetBytes((string)rawProcessedData), context, "image/svg+xml");
+                            break;
+                        // CSV string
+                        case nameof(Calculate.GenerateTimeListCSV):
+                            //send direct as raw CSV file
+                            await Tools.SendFileToCaller(System.Text.Encoding.UTF8.GetBytes((string)rawProcessedData), context, "text/csv");
+                            break;
+                        default:
+                            await APITools.SendAnyToCaller(calculatorName, rawProcessedData, context);
+                            break;
+                    }
                 }
-            }
-
-            //if any failure, show error in payload
-            catch (Exception e)
-            {
-                APILogger.Error(e, incomingRequest);
-                return APITools.FailMessageJson(e.Message, incomingRequest);
-            }
-
+                //if any failure, show error in payload
+                catch (Exception e)
+                {
+                    APILogger.Error(e, context.Request);
+                    await APITools.FailMessageJson(e.Message, context);
+                }
+            });
         }
 
         //------------------------------------------PRIVATE FUNC------------------------
@@ -121,7 +96,7 @@ namespace API
                 var broken = usedKeyword.Split('/'); //here we remove the front part because not needed
                 var callList = GenerateCallList(fullParamString, broken[1]);
 
-                // Make new calculation for all planets or houses 
+                // Make new calculation for all planets or houses
                 rawPlanetData = ProcessAllCalls(calculatorName, callList);
             }
             // If it's a single/normal call
@@ -262,7 +237,7 @@ namespace API
                 var ayanamsaUrl = $"/{splitParamString[ayanamsaLocation]}/{splitParamString[ayanamsaLocation + 1]}";
 
                 //set ayanamsa
-                VedAstro.Library.Calculate.Ayanamsa = (int)Tools.EnumFromUrl(ayanamsaUrl);
+                Calculate.Ayanamsa = (int)Tools.EnumFromUrl(ayanamsaUrl);
 
                 //remove ayanamsa from URL
                 fullParamString = fullParamString?.Replace(ayanamsaUrl, "");
@@ -327,7 +302,7 @@ namespace API
                     //if none found, continue to next
                     if (foundIndex == -1) { continue; }
 
-                    //get value of param name that matches 
+                    //get value of param name that matches
                     var valueToParse = brokenParams[foundIndex + 1]; //always next, hence plus 1
 
                     //get the correct parser (can be for double, int or string)
@@ -388,7 +363,7 @@ namespace API
             }
 
             //parse data in URL and modifies the full URL string
-            //note: placed inside to use same fullParamString 
+            //note: placed inside to use same fullParamString
             async Task<dynamic> ParseUrlParameterByType(Type parameterType)
             {
                 //get inches to cut based on Type of cloth (ask the "cloth" aka type)
@@ -422,12 +397,10 @@ namespace API
                         //ENUM
                         else if (parameterType.IsEnum)
                         {
-                            //parsedParamInstance = typeof(Tools).GetMethod(nameof(Tools.EnumFromUrl), BindingFlags.Public | BindingFlags.Static);
-
                             //execute param parser
                             parsedParam = Tools.EnumFromUrl(extractedUrl, parameterType); //pass in extracted URL
                         }
-                        //ENUM
+                        //INT
                         else if (parameterType == typeof(int))
                         {
                             //get the parser
@@ -447,7 +420,7 @@ namespace API
                         }
 
                         //DATE TIME OFFSET
-                        //NOTE: cut count set in 
+                        //NOTE: cut count set in
                         else if (parameterType == typeof(DateTimeOffset))
                         {
                             //get the parser
@@ -480,7 +453,7 @@ namespace API
                 {
                     //execute param parser
                     Task task = (Task)parsedParamInstance.Invoke(null, new object[] { extractedUrl }); //pass in extracted URL
-                    await task; //getting person and location is async, so all same 
+                    await task; //getting person and location is async, so all same
                     parsedParam = task.GetType().GetProperty("Result").GetValue(task, null);
                 }
 
@@ -551,9 +524,5 @@ namespace API
                 throw new Exception($"Type Parser not implemented! {type.Name}");
             }
         }
-
-
-
-
     }
 }

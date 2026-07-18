@@ -1,5 +1,3 @@
-﻿using Azure.Data.Tables;
-using Azure;
 using System;
 
 namespace VedAstro.Library
@@ -7,7 +5,7 @@ namespace VedAstro.Library
     /// <summary>
     /// Represents the data in 1 row of person list table
     /// </summary>
-    public class PersonRow : ITableEntity
+    public class PersonRow : IPartitionRowKeyEntity
     {
         //NEEDED BY TABLE
         public string PartitionKey { get; set; }
@@ -21,7 +19,6 @@ namespace VedAstro.Library
         /// Time of change
         /// </summary>
         public DateTimeOffset? Timestamp { get; set; }
-        public ETag ETag { get; set; }
 
         //CUSTOM DATA
         public string Name { get; set; }
@@ -39,7 +36,7 @@ namespace VedAstro.Library
                 PartitionKey = PartitionKey,
                 RowKey = RowKey,
                 Timestamp = Timestamp,
-                ETag = ETag,
+                
                 Name = Name,
                 BirthTime = BirthTime,
                 Gender = Gender,

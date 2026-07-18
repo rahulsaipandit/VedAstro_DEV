@@ -1,5 +1,3 @@
-using Azure.AI.OpenAI;
-using Azure;
 using SwissEphNet;
 using System;
 using System.Collections.Generic;
@@ -12,7 +10,6 @@ using Newtonsoft.Json.Linq;
 using System.Net.Http.Headers;
 using System.Net.Http;
 using Fizzler;
-using Azure.Data.Tables;
 using System.Collections.Concurrent;
 
 using static System.Runtime.InteropServices.JavaScript.JSType;
@@ -32,41 +29,35 @@ namespace VedAstro.Library
 
     public static class ChatAPI
     {
-        //auth details to talk to Azure OpenAI
-        //nullable/guarded because a missing key should not crash the whole class (see AzureTable.cs/AzureCache.cs
-        //for the same pattern) - only the legacy GPT-4 helpers below use this client, not the live chat pipeline
-        static Uri azureOpenAIResourceUri = new("https://openaimodelserver.openai.azure.com/");
-        static string? azureOpenAIApiKeyValue = Secrets.AzureOpenAIAPIKey;
-        static OpenAIClient? client = string.IsNullOrEmpty(azureOpenAIApiKeyValue)
-            ? null
-            : new OpenAIClient(azureOpenAIResourceUri, new AzureKeyCredential(azureOpenAIApiKeyValue));
+        // NOTE: this class used to also hold a static Azure.AI.OpenAI `OpenAIClient` field here,
+        // used only by 4 legacy/dead GPT-4-flavored helpers (RemoveAnyDisclaimers,
+        // ImproveFinalAnswer, PickOutMostRelevantPredictions_GPT4, AnswerQuestionDirectly) that
+        // had zero live callers (verified via repo-wide grep) - the live chat pipeline goes
+        // through ProcessPrediction/the Cohere/Mistral/local-LLM HTTP calls below instead. Those
+        // 4 dead methods were deleted (rather than ported) so Azure.AI.OpenAI could be dropped
+        // from Library.csproj/API.csproj per the Postgres migration's package cleanup.
 
         private static List<string> followupQuestions = new List<string> { "Why?", "How?", "Tell me more..." };
 
-        private static string tableName = "ChatMessage";
+        /// <summary>
+        /// Chat message history / preset-question-embeddings persistence is NOT part of the
+        /// Postgres migration's ported table list (see migration plan) - these tables were only
+        /// ever used by experimental Cohere-embeddings search code, most of which is already
+        /// dead/commented out. Rather than build a full repository for them, they're stubbed to
+        /// a no-op in-memory shim here so ChatAPI.cs compiles without Azure.Data.Tables and the
+        /// live LLM-reply chat flow (which doesn't depend on this) keeps working. TODO: wire a
+        /// real Postgres-backed repository for ChatMessage/PresetQuestionEmbeddings if the
+        /// chat-history/feedback-rating and semantic-search-over-presets features are needed.
+        /// </summary>
+        private static DisabledTableClient chatTableClient = new DisabledTableClient();
+        private static DisabledTableClient presetQuestionEmbeddingsTableClient = new DisabledTableClient();
 
-        //connection-string based so Azurite (UseDevelopmentStorage=true) works for local dev;
-        //nullable because a missing connection string should not crash the whole class
-        private static string? storageConnStr = Secrets.VedAstroApiStorageConnStr;
-
-        //save reference for late use
-        private static TableServiceClient? tableServiceClient = string.IsNullOrEmpty(storageConnStr) ? null : new TableServiceClient(storageConnStr);
-        private static TableClient? chatTableClient = MakeTableClient(tableServiceClient, tableName);
-
-
-        //------------------------------------
-        //Initialize address table
-        static string tableNamePresetQuestionEmbeddings = "PresetQuestionEmbeddings";
-
-        //save reference for late use
-        private static TableServiceClient? presetQuestionEmbeddingsServiceClient = string.IsNullOrEmpty(storageConnStr) ? null : new TableServiceClient(storageConnStr);
-        private static TableClient? presetQuestionEmbeddingsTableClient = MakeTableClient(presetQuestionEmbeddingsServiceClient, tableNamePresetQuestionEmbeddings);
-
-        private static TableClient? MakeTableClient(TableServiceClient? serviceClient, string forTableName)
+        private class DisabledTableClient
         {
-            var tableClient = serviceClient?.GetTableClient(forTableName);
-            tableClient?.CreateIfNotExists();
-            return tableClient;
+            public IEnumerable<T> Query<T>(string filter) => Enumerable.Empty<T>();
+            public IEnumerable<T> Query<T>(Expression<Func<T, bool>> filter) => Enumerable.Empty<T>();
+            public object? UpsertEntity<T>(T entity, object? mode = null) => null;
+            public object? AddEntity<T>(T entity) => null;
         }
 
 
@@ -201,7 +192,7 @@ namespace VedAstro.Library
             recordFound.Rating += feedbackScore;
 
             //save back to DB
-            chatTableClient.UpsertEntity(recordFound, TableUpdateMode.Replace);
+            chatTableClient.UpsertEntity(recordFound);
 
             //# say thanks 🙏
             //# NOTE: DO NOT tell the user explicitly to give more feedback
@@ -1128,35 +1119,6 @@ namespace VedAstro.Library
 
         }
 
-        private static async Task<string> RemoveAnyDisclaimers(string rawAnswer, string userQuestion)
-        {
-            //prepare LLM call
-            var chatCompletionsOptions = new ChatCompletionsOptions()
-            {
-                DeploymentName = "chatapi-mk8",
-                Messages = {
-                    new ChatRequestSystemMessage(
-                        "Provide a confident answer without any disclaimers for the following text:\n" +
-                        $"```TEXT\n{rawAnswer}```")
-                },
-                Temperature = (float)0.7,
-                MaxTokens = 300,
-                NucleusSamplingFactor = (float)0.95,
-                FrequencyPenalty = 0,
-                PresencePenalty = (float)0.0,
-                ResponseFormat = ChatCompletionsResponseFormat.Text
-            };
-
-            //make the call
-            Response<ChatCompletions> response = await client.GetChatCompletionsAsync(chatCompletionsOptions);
-            ChatResponseMessage responseMessage = response.Value.Choices[0].Message;
-
-            //get reply out
-            var aiReplyText = responseMessage.Content;
-            return aiReplyText;
-
-        }
-
         private static async Task<string> RemoveAnyDisclaimers_MistralLarge(string answerLevel1, string userQuestion)
         {
             var handler = new HttpClientHandler()
@@ -1292,34 +1254,6 @@ namespace VedAstro.Library
 
 
             return result;
-        }
-
-        private static async Task<string> ImproveFinalAnswer(string answerLevel1, string userQuestion)
-        {
-            var sysMessage =
-                $"summarize below raw answer as reply to this question, '{userQuestion}?'\n" +
-                $"summary is easier to understand,'\n" +
-                $"RAW ANSWER:\n{answerLevel1}";
-
-            var chatCompletionsOptions = new ChatCompletionsOptions()
-            {
-                DeploymentName = "chatapi-mk8",
-                Messages = {
-                    new ChatRequestSystemMessage(sysMessage)
-                },
-                Temperature = (float)0.7,
-                MaxTokens = 300,
-                NucleusSamplingFactor = (float)0.95,
-                FrequencyPenalty = 0,
-                PresencePenalty = (float)0.0,
-            };
-
-            Response<ChatCompletions> response = await client.GetChatCompletionsAsync(chatCompletionsOptions);
-            ChatResponseMessage responseMessage = response.Value.Choices[0].Message;
-
-
-            //return final message from AI
-            return responseMessage.Content;
         }
 
         private static async Task<string> ImproveFinalAnswer_MistralLarge(string answerLevelN, string userQuestion)
@@ -1484,45 +1418,6 @@ namespace VedAstro.Library
                     return responseContent;
                 }
             }
-        }
-
-        private static async Task<string> PickOutMostRelevantPredictions_GPT4(Time birthTime, string userQuestion)
-        {
-            //calculate predictions for current person
-            var predictionList = Tools.GetHoroscopePrediction(birthTime);
-
-            //convert prediction to text 
-            var predictJson = Tools.ListToJson(predictionList);
-            var predictText = predictJson.ToString(Formatting.None);
-
-            //prepare LLM call
-            var sysMessage = "Output only JSON.\n" +
-                                    //"From the below horoscope predictions list in JSON format.\n" +
-                                    $"Return all predictions that is relevant to the question, '{userQuestion}'." +
-                                    "Sort based on relevance, most relevant at top\n" +
-                                    $"```JSON\n{predictText}```";
-
-            var chatCompletionsOptions = new ChatCompletionsOptions()
-            {
-                DeploymentName = "chatapi-mk8",
-                Messages = {
-                    new ChatRequestSystemMessage(sysMessage)
-                },
-                Temperature = (float)0.2,
-                MaxTokens = 4096,
-                NucleusSamplingFactor = (float)0.95,
-                FrequencyPenalty = 0,
-                PresencePenalty = (float)0.0,
-                ResponseFormat = ChatCompletionsResponseFormat.JsonObject
-            };
-
-            //make the call
-            Response<ChatCompletions> response = await client.GetChatCompletionsAsync(chatCompletionsOptions);
-            ChatResponseMessage responseMessage = response.Value.Choices[0].Message;
-
-            //get reply out
-            var aiReplyText = responseMessage.Content;
-            return aiReplyText;
         }
 
         private static async Task<string> PickOutMostRelevantPredictions_MetaLlama3(Time birthTime, string userQuestion)
@@ -1818,7 +1713,12 @@ namespace VedAstro.Library
 
             string localModel = null;
             TimeSpan? localTimeout = null;
-#if DEBUG
+            // NOTE: this used to be gated behind `#if DEBUG`, which meant it only ever routed to
+            // a local LLM in Debug builds - Release-configured environments (e.g. CI running
+            // integration tests) always ignored LOCAL_LLM_BASE_URL. Made unconditional so it
+            // works the same way regardless of build configuration; behavior is unchanged when
+            // the env var isn't set (falls through to whatever settings.ServerUrl/ApiKey were
+            // already, i.e. the cloud endpoint).
             var localLlmBase = Environment.GetEnvironmentVariable("LOCAL_LLM_BASE_URL");
             if (!string.IsNullOrEmpty(localLlmBase))
             {
@@ -1829,9 +1729,8 @@ namespace VedAstro.Library
                 //their token budget on hidden "reasoning_content" before ever emitting a real answer -
                 //the default HttpClient.Timeout of 100s is routinely too short for this
                 localTimeout = TimeSpan.FromSeconds(300);
-                Console.WriteLine($"[ChatAPI] DEBUG: routing LLM call to {settings.ServerUrl}");
+                Console.WriteLine($"[ChatAPI] routing LLM call to {settings.ServerUrl}");
             }
-#endif
 
             var requestBody = CreateRequestBody(settings.SysMessage, settings.MaxTokens, settings.Temperature, settings.TopP, localModel);
             var content = new StringContent(requestBody);
@@ -2288,34 +2187,5 @@ namespace VedAstro.Library
 
         }
 
-        private static async Task<string> AnswerQuestionDirectly(string relevantPredictions, string userQuestion)
-        {
-            var sysMessage =
-                $"analyse life description text, answer question directly\n" +
-                $"QUESTION:\n{userQuestion}\n\n" +
-                $"LIFE DESCRIPTION:\n{relevantPredictions}";
-
-            var chatCompletionsOptions = new ChatCompletionsOptions()
-            {
-                DeploymentName = "chatapi-mk8",
-                Messages = {
-                    new ChatRequestSystemMessage(sysMessage),
-                },
-                Temperature = (float)0.7,
-                MaxTokens = 2000,
-                NucleusSamplingFactor = (float)0.95,
-                FrequencyPenalty = 0,
-                PresencePenalty = (float)0.0,
-            };
-
-            Response<ChatCompletions> response = await client.GetChatCompletionsAsync(chatCompletionsOptions);
-            ChatResponseMessage responseMessage = response.Value.Choices[0].Message;
-
-
-            //return final message from AI
-            var unrefinedSugar = responseMessage.Content;
-
-            return unrefinedSugar;
-        }
     }
 }

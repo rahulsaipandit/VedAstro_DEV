@@ -1,12 +1,15 @@
-using Azure;
-using Azure.Data.Tables;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using MimeDetective.Storage;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using ScottPlot.Drawing.Colormaps;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text;
+using VedAstro.Data;
+using VedAstro.Data.Repositories;
 using VedAstro.Library;
 
 namespace MatchMLPipeline;
@@ -16,12 +19,49 @@ public static class DatasetFactory
 
     static string MetaLlama_3_70BEndpoint = "https://Meta-Llama-3-70B-Instruct-ydbrc-serverless.westus.inference.ai.azure.com/v1/chat/completions";
 
-    //static TableClient personListClient = new TableClient(centralStorageConnection, "PersonList");
-    public static TableClient personListClient_LocalEmulator = new TableClient(centralStorageConnection_LocalEmulator, "PersonList");
-    public static TableClient marriageInfoDatasetClient_LocalEmulator = new TableClient(centralStorageConnection_LocalEmulator, "MarriageInfoDataset");
-    public static TableClient bodyInfoDatasetClient_LocalEmulator = new TableClient(centralStorageConnection_LocalEmulator, "BodyInfoDataset");
-    //static TableClient personNameEmbeddingsClient = new TableClient(centralStorageConnection, "PersonNameEmbeddings");
-    public static TableClient personNameEmbeddingsClient_LocalEmulator = new TableClient(centralStorageConnection_LocalEmulator, "PersonNameEmbeddings");
+    // ---- Postgres wiring (replaces the old raw Azure Table Storage TableClient fields) ----
+    // MatchMLPipeline is a standalone console Exe (Main/Main2/Main5), not an ASP.NET Core host,
+    // so there's no DI container to wire a `Repositories` locator into at startup the way
+    // API/Program.cs does. Instead we build a small local IDbContextFactory<AppDbContext> and
+    // construct the repositories directly - same repository classes/pattern the API uses
+    // (Data/Repositories/NamedRepositories.cs), just resolved by hand instead of via DI.
+    private static readonly IDbContextFactory<AppDbContext> dbContextFactory = CreateDbContextFactory();
+
+    /// <summary>PersonList is read-only here - reuses the same IPersonRepository/PersonRepository the API uses (no second Person repository).</summary>
+    public static readonly IPersonRepository personRepo = new PersonRepository(dbContextFactory);
+    public static readonly IMarriageInfoDatasetRepository marriageInfoDatasetRepo = new MarriageInfoDatasetRepository(dbContextFactory);
+    public static readonly IBodyInfoDatasetRepository bodyInfoDatasetRepo = new BodyInfoDatasetRepository(dbContextFactory);
+    public static readonly IPersonNameEmbeddingsRepository personNameEmbeddingsRepo = new PersonNameEmbeddingsRepository(dbContextFactory);
+
+    /// <summary>
+    /// Connection string comes from this project's user-secrets (dotnet user-secrets set
+    /// "ConnectionStrings:Postgres" "..." --project MatchMLPipeline), falling back to a
+    /// local-dev placeholder matching API/appsettings.json's shape if none is configured -
+    /// this project's real local secret is user-specific, not something to hardcode here.
+    /// </summary>
+    private static IDbContextFactory<AppDbContext> CreateDbContextFactory()
+    {
+        var config = new ConfigurationBuilder()
+            .AddUserSecrets(Assembly.GetExecutingAssembly())
+            .Build();
+
+        var connectionString = config.GetConnectionString("Postgres")
+            ?? "Host=localhost;Port=5432;Database=vedAstro;Username=postgres;Password=postgres";
+
+        return new LocalDbContextFactory(connectionString);
+    }
+
+    private class LocalDbContextFactory : IDbContextFactory<AppDbContext>
+    {
+        private readonly string _connectionString;
+        public LocalDbContextFactory(string connectionString) => _connectionString = connectionString;
+
+        public AppDbContext CreateDbContext()
+        {
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(_connectionString).Options;
+            return new AppDbContext(options);
+        }
+    }
 
 
 
@@ -49,7 +89,7 @@ public static class DatasetFactory
 
             var newDatasetRow = new MarriageInfoDatasetEntity() { PartitionKey = personProfile.RowKey, Info = marriageInfoJson };
 
-            marriageInfoDatasetClient_LocalEmulator.UpsertEntityAsync(newDatasetRow);
+            marriageInfoDatasetRepo.UpsertAsync(newDatasetRow).GetAwaiter().GetResult();
 
             Console.WriteLine($"-----{personProfile.RowKey}------");
             Console.WriteLine(marriageInfoJson);
@@ -71,7 +111,7 @@ public static class DatasetFactory
 
             var newDatasetRow = new BodyInfoDatasetEntity() { PartitionKey = personProfile.RowKey, Info = bodyInfoJson };
 
-            bodyInfoDatasetClient_LocalEmulator.UpsertEntityAsync(newDatasetRow);
+            bodyInfoDatasetRepo.UpsertAsync(newDatasetRow).GetAwaiter().GetResult();
 
             Console.WriteLine($"-----{personProfile.RowKey}------");
             Console.WriteLine(bodyInfoJson);
@@ -139,7 +179,7 @@ public static class DatasetFactory
 
             var requestBody = JsonConvert.SerializeObject(requestBodyObject);
 
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", azureMetaLlama3APIKey);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Secrets.Get("azureMetaLlama3APIKey"));
             client.BaseAddress = new Uri(MetaLlama_3_70BEndpoint);
 
             var content = new StringContent(requestBody);
@@ -201,7 +241,7 @@ public static class DatasetFactory
 
             var requestBody = JsonConvert.SerializeObject(requestBodyObject);
 
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", azureMetaLlama3APIKey);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Secrets.Get("azureMetaLlama3APIKey"));
             client.BaseAddress = new Uri(MetaLlama_3_70BEndpoint);
 
             var content = new StringContent(requestBody);
@@ -247,25 +287,25 @@ public static class DatasetFactory
     ""Latitude"": 4.59
   }
 }";
-        string filter = $"BirthTime eq '{emptyDetect}'";
 
-        // Query the table for matching records
-        var queryResults = personListClient_LocalEmulator.Query<PersonListEntity>(filter);
+        // Query for matching records (full scan + in-memory filter, same semantics as the old
+        // Azure Table `BirthTime eq '...'` filter query)
+        var queryResults = personRepo.Query().Where(x => x.BirthTime == emptyDetect).ToList();
 
         // Iterate through the query results in parallel and delete matching records
         Parallel.ForEach(queryResults, entity =>
         {
-            var deleteResponse = personListClient_LocalEmulator.DeleteEntity(entity.PartitionKey, entity.RowKey);
+            personRepo.DeleteAsync(entity.PartitionKey, entity.RowKey).GetAwaiter().GetResult();
             Console.WriteLine($"Deleted entity with PartitionKey: {entity.PartitionKey}, RowKey: {entity.RowKey}");
         });
 
     }
 
-    public static void PrintDatasetHighDataCredibility<T>(TableClient tableClient) where T : class, ITableEntity
+    public static void PrintDatasetHighDataCredibility<T>(IKeyedRepository<T> repository) where T : class, IPartitionRowKeyEntity
     {
 
         // get all
-        var queryResults = tableClient.Query<T>();
+        var queryResults = repository.GetAllAsync().GetAwaiter().GetResult();
 
         var count = 0;
         // Iterate through the query results in parallel and delete matching records
@@ -284,12 +324,12 @@ public static class DatasetFactory
     }
 
     /// <summary>
-    /// given table client, will clean input char from info field
+    /// given repository, will clean input char from info field
     /// </summary>
-    public static void CleanDatasetFromCharacter<T>(string targetCharacters, TableClient tableClient) where T : class, ITableEntity
+    public static void CleanDatasetFromCharacter<T>(string targetCharacters, IKeyedRepository<T> repository) where T : class, IPartitionRowKeyEntity
     {
         // get all
-        var queryResults = tableClient.Query<T>();
+        var queryResults = repository.GetAllAsync().GetAwaiter().GetResult();
 
         // Iterate through the query results in parallel and delete matching records
         Parallel.ForEach(queryResults, new ParallelOptions { MaxDegreeOfParallelism = 20 }, entity =>
@@ -297,7 +337,7 @@ public static class DatasetFactory
             //replace character from text with nothing
             var cleanedInfo = ((dynamic)entity).Info.Replace(targetCharacters, "");
             ((dynamic)entity).Info = cleanedInfo;
-            tableClient.UpsertEntity<T>(entity, TableUpdateMode.Replace);
+            repository.UpsertAsync(entity).GetAwaiter().GetResult();
             Console.WriteLine($"Cleaned entity with PartitionKey: {((dynamic)entity).PartitionKey}, Info: {((dynamic)entity).Info}");
         });
 
@@ -313,7 +353,7 @@ public static class DatasetFactory
         //string filter = $"BirthTime eq '{emptyDetect}'";
 
         // Query the table for matching records
-        Pageable<PersonListEntity> queryResults = personListClient_LocalEmulator.Query<PersonListEntity>();
+        List<PersonListEntity> queryResults = await personRepo.GetAllAsync();
 
 
         // Iterate through the query results in parallel and get embeddings for each and save them straight to db
@@ -337,7 +377,7 @@ public static class DatasetFactory
             var newEmbedRow = new PersonNameEmbeddingsEntity() { PartitionKey = entity.Name, Embeddings = nameVectors, };
 
             //add to separate DB
-            personNameEmbeddingsClient_LocalEmulator.UpsertEntityAsync(newEmbedRow);
+            personNameEmbeddingsRepo.UpsertAsync(newEmbedRow).GetAwaiter().GetResult();
 
             Console.WriteLine("Done - " + entity.Name);
         }
@@ -362,7 +402,7 @@ public static class DatasetFactory
         var searchKeywordVector = LLMEmbeddingManager.GetEmbeddingsArrayForText_Ada002(personName).Result;
 
         //#2 GET ALL PROFILES
-        var allDocsEmbeddings = personNameEmbeddingsClient_LocalEmulator.Query<PersonNameEmbeddingsEntity>()?.ToList();
+        var allDocsEmbeddings = personNameEmbeddingsRepo.GetAllAsync().GetAwaiter().GetResult();
 
         //#3 COSINE SIMILARITY (CPU power⚡)
         var similarity = PersonNameEmbeddingsGetSimilarity(searchKeywordVector, allDocsEmbeddings);
@@ -404,5 +444,5 @@ public static class DatasetFactory
     /// get's all 15.8k people entity from db
     /// </summary>
     /// <returns></returns>
-    public static Pageable<PersonListEntity> AllFamousePeople15k() => personListClient_LocalEmulator.Query<PersonListEntity>();
+    public static List<PersonListEntity> AllFamousePeople15k() => personRepo.GetAllAsync().GetAwaiter().GetResult();
 }

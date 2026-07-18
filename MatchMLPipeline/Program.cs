@@ -87,14 +87,19 @@ namespace MatchMLPipeline
 
             //DatasetFactory.PrintDatasetHighDataCredibility<MarriageInfoDatasetEntity>(DatasetFactory.marriageInfoDatasetClient_LocalEmulator);
             
-            //DatasetFactory.PrintDatasetHighDataCredibility<MarriageInfoDatasetEntity>(DatasetFactory.marriageInfoDatasetClient_LocalEmulator);
+            //DatasetFactory.PrintDatasetHighDataCredibility<MarriageInfoDatasetEntity>(DatasetFactory.marriageInfoDatasetRepo);
 
-            DatasetFactory.GenerateAllRoddenAAMarriges();
+            // DatasetFactory.GenerateAllRoddenAAMarriges() references abandoned/never-implemented
+            // functionality (no such method exists anywhere in this codebase - traces back to an
+            // abandoned "WIP" commit). Not implementing it from scratch here since that would mean
+            // fabricating domain logic with no way to verify correctness (see LocationManager.cs's
+            // constructor comment for the same category of decision elsewhere in this codebase).
+            //DatasetFactory.GenerateAllRoddenAAMarriges();
             //DatasetFactory.PrintAllRoddenAAMarriges();
 
             //DatasetFactory.CleanDatasetFromCharacter("```");
 
-            //DatasetFactory.CleanDatasetFromCharacter<MarriageInfoDatasetEntity>("```", DatasetFactory.marriageInfoDatasetClient_LocalEmulator);
+            //DatasetFactory.CleanDatasetFromCharacter<MarriageInfoDatasetEntity>("```", DatasetFactory.marriageInfoDatasetRepo);
 
             //var result = DatasetFactory.FillPersonNameEmbeddings().Result;
 
@@ -148,15 +153,25 @@ namespace MatchMLPipeline
             Console.WriteLine("\nCreating " + "NearestCentroidClassifier object ");
             int numClasses = 4;
             NearestCentroidClassifier ncc = new NearestCentroidClassifier(numClasses);
-            ncc.LoadFromTable("marriagePredictMK1");
+
+            // Everything below this point references abandoned/never-implemented functionality:
+            // NearestCentroidClassifier has no LoadFromTable/SaveToTable methods, and
+            // NearestCentroidClassificationTools (MatShow/VecShow/etc) and DatasetFactory.Outcome
+            // don't exist anywhere in this codebase (traces back to an abandoned "WIP" commit).
+            // Not implementing them from scratch here since that would mean fabricating ML
+            // training/prediction pipeline logic with no way to verify correctness (see
+            // LocationManager.cs's constructor comment for the same category of decision
+            // elsewhere in this codebase). Commented out so the project compiles; this Main is
+            // dead demo code, not a real entry point used by the rest of the pipeline.
+            //ncc.LoadFromTable("marriagePredictMK1");
             //Console.WriteLine("Training the classifier ");
             //ncc.Train(trainX, trainY);
             //ncc.SaveToTable("marriagePredictMK1");
             //ncc.Train(trainX2, trainY2);
-            Console.WriteLine("Done ");
+            //Console.WriteLine("Done ");
 
-            Console.WriteLine("\nClass centroids: ");
-            NearestCentroidClassificationTools.MatShow(ncc.centroids, 4, 9, 3, true);
+            //Console.WriteLine("\nClass centroids: ");
+            //NearestCentroidClassificationTools.MatShow(ncc.centroids, 4, 9, 3, true);
 
             // 4. evaluate model
             //Console.WriteLine("\nEvaluating model ");
@@ -174,25 +189,25 @@ namespace MatchMLPipeline
             //ncc.ShowConfusion(cm);
 
             // 5. use model
-            Console.WriteLine("\nPredicting species" +
-              " for x = 46.5, 17.9, 192, 3500");
+            //Console.WriteLine("\nPredicting species" +
+            //  " for x = 46.5, 17.9, 192, 3500");
 
-            //string[] speciesNames = new string[] { "Adelie", "Chinstrap", "Gentoo" };
-            string[] speciesNames = Enum.GetNames(typeof(DatasetFactory.Outcome));
-            //double[] xRaw = { 46.5, 17.9, 192, 3500 };
-            double[] xRaw = { 8.0, 0.0, 0.0, 8.0, 0.0, 0.0, 8.0, 0.0 };
-            double[][] minsMaxs = new[] { new[] { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 }, new[] { 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0 } };
-            //double[] xNorm = NearestCentroidClassificationTools.VecNormalizeUsing(xRaw, minsMaxs);
-            Console.Write("Normalized x =");
-            NearestCentroidClassificationTools.VecShow(xRaw, 4, 9);
+            ////string[] speciesNames = new string[] { "Adelie", "Chinstrap", "Gentoo" };
+            //string[] speciesNames = Enum.GetNames(typeof(DatasetFactory.Outcome));
+            ////double[] xRaw = { 46.5, 17.9, 192, 3500 };
+            //double[] xRaw = { 8.0, 0.0, 0.0, 8.0, 0.0, 0.0, 8.0, 0.0 };
+            //double[][] minsMaxs = new[] { new[] { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 }, new[] { 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0 } };
+            ////double[] xNorm = NearestCentroidClassificationTools.VecNormalizeUsing(xRaw, minsMaxs);
+            //Console.Write("Normalized x =");
+            //NearestCentroidClassificationTools.VecShow(xRaw, 4, 9);
 
-            int lbl = ncc.Predict(xRaw);
-            Console.WriteLine("predicted label/class = " + lbl);
-            Console.WriteLine("predicted species = " + speciesNames[lbl]);
+            //int lbl = ncc.Predict(xRaw);
+            //Console.WriteLine("predicted label/class = " + lbl);
+            //Console.WriteLine("predicted species = " + speciesNames[lbl]);
 
-            double[] pseudoProbs = ncc.PredictProbs(xRaw);
-            Console.WriteLine("\nprediction pseudo-probs = ");
-            NearestCentroidClassificationTools.VecShow(pseudoProbs, 4, 9);
+            //double[] pseudoProbs = ncc.PredictProbs(xRaw);
+            //Console.WriteLine("\nprediction pseudo-probs = ");
+            //NearestCentroidClassificationTools.VecShow(pseudoProbs, 4, 9);
 
             // 6. TODO: consider saving model (centroids)
 

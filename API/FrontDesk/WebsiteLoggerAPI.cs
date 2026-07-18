@@ -1,62 +1,55 @@
-﻿using Microsoft.Azure.Functions.Worker.Http;
-using Microsoft.Azure.Functions.Worker;
 using VedAstro.Library;
-using Azure.Data.Tables;
-using Azure;
 
 namespace API
 {
-    public class WebsiteLoggerAPI
+    public static class WebsiteLoggerAPI
     {
-
-        /// <summary>
-        /// Logs errors from website
-        /// </summary>
-        [Function(nameof(LogError))]
-        public static async Task LogError([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "LogError")] HttpRequestData incomingRequest)
+        public static void MapWebsiteLoggerEndpoints(this WebApplication app)
         {
-            // Read error details from request body
-            var errorDetails = await incomingRequest.ReadFromJsonAsync<ErrorDetails>();
-
-            // Save error details to Azure Table Storage
-            var entity = new WebsiteErrorLogEntity
+            /// <summary>
+            /// Logs errors from website
+            /// </summary>
+            app.MapPost("/api/LogError", async (HttpContext context) =>
             {
-                PartitionKey = errorDetails.UserId,
-                RowKey = errorDetails.LocalTime,
-                ErrorMessage = errorDetails.Message,
-                StackTrace = errorDetails.Stack,
-                Url = errorDetails.Url,
-                UserAgent = errorDetails.UserAgent,
-                Timestamp = DateTime.UtcNow
-            };
-            await AzureTable.WebsiteErrorLog.AddEntityAsync(entity);
-        }
+                // Read error details from request body
+                var errorDetails = await context.Request.ReadFromJsonAsync<ErrorDetails>();
 
-        /// <summary>
-        /// Logs general info from the website for debug purposes
-        /// </summary>
-        [Function(nameof(LogDebug))]
-        public static async Task LogDebug(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "LogDebug")] HttpRequestData incomingRequest)
-        {
-            // Read debug details from request body
-            var debugDetails = await incomingRequest.ReadFromJsonAsync<DebugDetails>();
+                // Save error details to Postgres (was Azure Table Storage)
+                var entity = new WebsiteErrorLogEntity
+                {
+                    PartitionKey = errorDetails.UserId,
+                    RowKey = errorDetails.LocalTime,
+                    ErrorMessage = errorDetails.Message,
+                    StackTrace = errorDetails.Stack,
+                    Url = errorDetails.Url,
+                    UserAgent = errorDetails.UserAgent,
+                    Timestamp = DateTime.UtcNow
+                };
+                await Repositories.WebsiteErrorLog.AddAsync(entity);
+            });
 
-            // Save debug details to Azure Table Storage
-            var entity = new WebsiteDebugLogEntity
+            /// <summary>
+            /// Logs general info from the website for debug purposes
+            /// </summary>
+            app.MapPost("/api/LogDebug", async (HttpContext context) =>
             {
-                PartitionKey = debugDetails.UserId,
-                RowKey = debugDetails.LocalTime,
-                Message = debugDetails.Message,
-                Url = debugDetails.Url,
-                UserAgent = debugDetails.UserAgent,
-                Timestamp = DateTime.UtcNow
-            };
-            await AzureTable.WebsiteDebugLog.AddEntityAsync(entity);
+                // Read debug details from request body
+                var debugDetails = await context.Request.ReadFromJsonAsync<DebugDetails>();
+
+                // Save debug details to Postgres (was Azure Table Storage)
+                var entity = new WebsiteDebugLogEntity
+                {
+                    PartitionKey = debugDetails.UserId,
+                    RowKey = debugDetails.LocalTime,
+                    Message = debugDetails.Message,
+                    Url = debugDetails.Url,
+                    UserAgent = debugDetails.UserAgent,
+                    Timestamp = DateTime.UtcNow
+                };
+                await Repositories.WebsiteDebugLog.AddAsync(entity);
+            });
         }
     }
-
-
 
     // New class for DebugDetails
     public class DebugDetails
@@ -70,29 +63,6 @@ namespace API
         public string UserAgent { get; set; }
     }
 
-    // New class for WebsiteDebugLogEntity
-    public class WebsiteDebugLogEntity : ITableEntity
-    {
-        // Needed by Table
-        public string PartitionKey { get; set; }
-
-        /// <summary>
-        /// Local Time
-        /// </summary>
-        public string RowKey { get; set; }
-
-        /// <summary>
-        /// Time of change
-        /// </summary>
-        public DateTimeOffset? Timestamp { get; set; }
-        public ETag ETag { get; set; }
-        public string Url { get; set; }
-        public string UserAgent { get; set; }
-
-        public string Message { get; set; }
-    }
-
-
     public class ErrorDetails
     {
         public string UserId { get; set; }
@@ -101,27 +71,6 @@ namespace API
         public string Message { get; set; }
         public string Stack { get; set; }
         public string UserAgent { get; set; }
-    }
-
-    public class WebsiteErrorLogEntity : ITableEntity
-    {
-        //NEEDED BY TABLE
-        public string PartitionKey { get; set; }
-
-        /// <summary>
-        /// Client's Local Time
-        /// </summary>
-        public string RowKey { get; set; }
-
-        /// <summary>
-        /// Time of change
-        /// </summary>
-        public DateTimeOffset? Timestamp { get; set; }
-        public ETag ETag { get; set; }
-        public string Url { get; set; }
-        public string UserAgent { get; set; }
-        public string ErrorMessage { get; set; }
-        public string StackTrace { get; set; }
     }
 
 }

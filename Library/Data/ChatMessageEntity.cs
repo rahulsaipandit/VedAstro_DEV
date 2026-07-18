@@ -1,11 +1,9 @@
 ﻿using System;
-using Azure;
-using Azure.Data.Tables;
 using VedAstro.Library;
 
 namespace VedAstro.Library;
 
-public class ChatMessageEntity : ITableEntity
+public class ChatMessageEntity : IPartitionRowKeyEntity
 {
 
     public ChatMessageEntity()
@@ -58,12 +56,5 @@ public class ChatMessageEntity : ITableEntity
     /// mandatory
     /// </summary>
     public DateTimeOffset? Timestamp { get; set; }
-
-    /// <summary>
-    /// mandatory
-    /// </summary>
-    public ETag ETag { get; set; }
-
-
 
 }

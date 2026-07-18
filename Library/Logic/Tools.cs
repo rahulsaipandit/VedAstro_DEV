@@ -1,8 +1,5 @@
-using Azure;
-using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
 using HtmlAgilityPack;
-using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Extensions.Logging;
@@ -139,236 +136,61 @@ namespace VedAstro.Library
             //return imageBytes;
         }
 
-        public static HttpResponseData SendFileToCaller(byte[] gif, HttpRequestData incomingRequest, string mimeType)
+        /// <summary>
+        /// Writes raw bytes directly to the response (was HttpRequestData/HttpResponseData
+        /// (Azure Functions Worker) based - now HttpContext (ASP.NET Core) based, since the API
+        /// host moved off Azure Functions).
+        /// </summary>
+        public static async Task SendFileToCaller(byte[] data, HttpContext context, string mimeType)
         {
-            //send image back to caller
-            var response = incomingRequest.CreateResponse(HttpStatusCode.OK);
-            response.Headers.Add("Content-Type", mimeType);
-            //place in response body
-            response.WriteBytes(gif);
-            return response;
+            context.Response.ContentType = mimeType;
+            await context.Response.Body.WriteAsync(data, 0, data.Length);
         }
 
         /// <summary>
-        /// SPECIAL METHOD made to allow files straight from blob to be sent to caller
-        /// as fast as possible
+        /// SPECIAL METHOD made to allow files straight from the local-disk chart cache to be
+        /// streamed to the caller as fast as possible (was blob-backed, see AzureCache.cs).
         /// </summary>
-        public static HttpResponseData SendFileToCaller(BlobClient fileBlobClient, HttpRequestData incomingRequest, string mimeType)
+        public static async Task SendFileToCaller(Stream fileStream, HttpContext context, string mimeType)
         {
-            //send image back to caller
-            var response = incomingRequest.CreateResponse(HttpStatusCode.OK);
-            response.Headers.Add("Content-Type", mimeType);
-
-            //place in response body
-            //NOTE: very important to pass as stream to make work
-            //      if convert to byte array will not work!
-            //      needs to be direct stream to response
-            response.Body = fileBlobClient.OpenRead();
-            return response;
+            context.Response.ContentType = mimeType;
+            using (fileStream)
+            {
+                await fileStream.CopyToAsync(context.Response.Body);
+            }
         }
 
-        /// <summary>
-        /// Given an image in byte form, will save it as Person profile image in correct place with ID as file name
-        /// </summary>
-        public static async Task SaveNewPersonImage(string personId, byte[] imageBytes)
+        public static string ExtractHostAddress(this HttpRequest incomingRequest)
         {
-
-            var blobContainerName = "vedastro-site-data";
-
-            //get the connection string stored separately (for security reasons)
-            //note: dark art secrets are in local.settings.json
-            var storageConnectionString = Secrets.Get("API_STORAGE"); //place where is image is stored
-
-            //get image from storage
-            var blobContainerClient = new BlobContainerClient(storageConnectionString, blobContainerName);
-
-            //get access to file
-            var imageFile = $"images/person/{personId}.jpg";
-            var fileBlobClient = blobContainerClient.GetBlobClient(imageFile);
-
-            using var ms = new MemoryStream(imageBytes);
-            var blobUploadOptions = new BlobUploadOptions();
-            blobUploadOptions.AccessTier = AccessTier.Cool; //save money!
-
-            //note no override needed because specifying BlobUploadOptions, is auto override
-            await fileBlobClient.UploadAsync(content: ms, options: blobUploadOptions);
-
-        }
-
-        /// <summary>
-        /// Given an image in blob form, will save it as Person profile image in correct place with ID as file name
-        /// </summary>
-        public static async Task SaveNewPersonImage(string personId, BlobClient blobToUpload)
-        {
-
-            var blobContainerName = "$web";
-
-            //get the connection string stored separately (for security reasons)
-            //note: dark art secrets are in local.settings.json
-            var storageConnectionString = Secrets.Get("WEB_STORAGE"); //place where is image is stored
-
-            //get image from storage
-            var blobContainerClient = new BlobContainerClient(storageConnectionString, blobContainerName);
-
-            //place to save new image
-            var imageFile = $"images/person/{personId}.jpg";
-            var oldImageToReplace = blobContainerClient.GetBlobClient(imageFile);
-
-            // assume that if the following doesn't throw an exception, then it is successful.
-            CopyFromUriOperation operation = await oldImageToReplace.StartCopyFromUriAsync(blobToUpload.Uri, null, AccessTier.Cool);
-            await operation.WaitForCompletionAsync();
-        }
-
-        /// <summary>
-        /// gets image already stored in Images/Person as blobclient based on image name, without file format
-        /// </summary>
-        public static BlobClient GetPersonImage(string personId)
-        {
-
-            var blobContainerName = "vedastro-site-data";
-
-            //get the connection string stored separately (for security reasons)
-            //note: dark art secrets are in local.settings.json
-            var storageConnectionString = Secrets.Get("API_STORAGE"); //place where is image is stored
-
-            //get image from storage
-            var blobContainerClient = new BlobContainerClient(storageConnectionString, blobContainerName);
-
-            //get access to file
-            var imageFile = $"images/person/{personId}.jpg";
-            var fileBlobClient = blobContainerClient.GetBlobClient(imageFile);
-
-            return fileBlobClient;
-
-
-        }
-
-        ///// <summary>
-        ///// Gets any file from Azure blob storage in string form
-        ///// </summary>
-        //public static async Task<string> GetStringFileFromAzureStorage(string fileName, string blobContainerName)
-        //{
-        //    var fileClient = await Tools.GetBlobClientAzure(fileName, blobContainerName);
-        //    var xmlFile = await BlobClientToString(fileClient);
-
-        //    return xmlFile;
-        //}
-
-        /// <summary>
-        /// Saves XML file direct to Azure storage
-        /// </summary>
-        public static async Task SaveXDocumentToAzure(XDocument dataXml, string fileName, string containerName)
-        {
-            //get file client for file
-            var fileClient = await Tools.GetBlobClientAzure(fileName, containerName);
-
-            //upload modified list to storage
-            await Tools.OverwriteBlobData(fileClient, dataXml);
-        }
-
-        /// <summary>
-        /// check if a person's profile image already exist on server
-        /// </summary>
-        public static async Task<bool> IsCustomPersonImageExist(string personId)
-        {
-
-            var blobContainerName = "vedastro-site-data";
-
-            //get the connection string stored separately (for security reasons)
-            //note: dark art secrets are in local.settings.json
-            var storageConnectionString = Secrets.Get("API_STORAGE"); //place where is image is stored
-
-            //get image from storage
-            var blobContainerClient = new BlobContainerClient(storageConnectionString, blobContainerName);
-
-            //get access to file
-            var imageFile = $"images/person/{personId}.jpg";
-            var fileBlobClient = blobContainerClient.GetBlobClient(imageFile);
-
-            //do the actual code 
-            var isCustomPersonImageExist = await fileBlobClient.ExistsAsync();
-
-            var x = isCustomPersonImageExist.Value;
-            return x;
-
-        }
-
-        public static bool IsSecureConnection(this HttpRequestData incomingRequest)
-        {
-            // Check X-Forwarded-Proto header for requests coming via a proxy
-            //if (incomingRequest.Headers.ContainsKey("X-Forwarded-Proto"))
-            //{
-            //    var protoValues = incomingRequest.Headers["X-Forwarded-Proto"].ToString().Split(",");
-            //    foreach (var proto in protoValues)
-            //    {
-            //        if ("https".Equals(proto.Trim(), StringComparison.OrdinalIgnoreCase))
-            //            return true;
-            //    }
-            //}
-
-            // Fall back to checking URL for direct requests
-            if (incomingRequest.Url.Port == 443 || incomingRequest.Url.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            return false;
-        }
-
-        public static string ExtractHostAddress(this HttpRequestData incomingRequest)
-        {
-
-            const string SCHEME_HTTP = "http";
-            const string SCHEME_HTTPS = "https";
-
-            var scheme = SCHEME_HTTP;
-            if (incomingRequest.IsSecureConnection())
-                scheme = SCHEME_HTTPS;
-
-            var requestHeaderList = incomingRequest.Headers.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
-            requestHeaderList.TryGetValue("Host", out var hostValues);
-            var host = hostValues?.FirstOrDefault() ?? "no host";
+            var scheme = incomingRequest.IsHttps ? "https" : "http";
+            var host = incomingRequest.Host.HasValue ? incomingRequest.Host.Value : "no host";
 
             return $"{scheme}://{host}";
-
-            ////from incoming request instance extract full host address like  "http://localhost:7071/api"
-            //var requestHeaderList = incomingRequest.Headers.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
-            //requestHeaderList.TryGetValue("Host", out var hostValues);
-            //var host = hostValues?.FirstOrDefault() ?? "no host";
-            //return host;
         }
 
-        public static HttpResponseData SendPassHeaderToCaller(BlobClient fileBlobClient, HttpRequestData req, string mimeType)
+        /// <summary>
+        /// Streams a locally-cached file to the caller with the "Call-Status: Pass" header the
+        /// client's polling logic expects (was blob-backed, see AzureCache.cs).
+        /// </summary>
+        public static async Task SendPassHeaderToCaller(Stream fileStream, HttpContext context, string mimeType)
         {
-            //send image back to caller
-            //response = incomingRequest.CreateResponse(HttpStatusCode.OK);
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            response.Headers.Add("Call-Status", "Pass"); //lets caller know data is in payload
-            response.Headers.Add("Access-Control-Expose-Headers", "Call-Status"); //needed by silly browser to read call-status
-            response.Headers.Add("Content-Type", mimeType);
+            context.Response.Headers.Append("Call-Status", "Pass"); //lets caller know data is in payload
+            context.Response.Headers.Append("Access-Control-Expose-Headers", "Call-Status"); //needed by silly browser to read call-status
+            context.Response.ContentType = mimeType;
 
-            //place in response body
-            //NOTE: very important to pass as stream to make work
-            //      if convert to byte array will not work!
-            //      needs to be direct stream to response
-            response.Body = fileBlobClient.OpenRead();
-            return response;
+            using (fileStream)
+            {
+                await fileStream.CopyToAsync(context.Response.Body);
+            }
         }
 
-        public static async Task<HttpResponseData> SendPassHeaderToCaller(string dataToSend, HttpRequestData req, string mimeType)
+        public static async Task SendPassHeaderToCaller(string dataToSend, HttpContext context, string mimeType)
         {
-            //send image back to caller
-            //response = incomingRequest.CreateResponse(HttpStatusCode.OK);
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            response.Headers.Add("Call-Status", "Pass"); //lets caller know data is in payload
-            response.Headers.Add("Access-Control-Expose-Headers", "Call-Status"); //needed by silly browser to read call-status
-            response.Headers.Add("Content-Type", mimeType);
+            context.Response.Headers.Append("Call-Status", "Pass"); //lets caller know data is in payload
+            context.Response.Headers.Append("Access-Control-Expose-Headers", "Call-Status"); //needed by silly browser to read call-status
+            context.Response.ContentType = mimeType;
 
-            //place in response body
-            //NOTE: very important to pass as stream to make work
-            //      if convert to byte array will not work!
-            //      needs to be direct stream to response
-            await response.WriteStringAsync(dataToSend);
-
-            return response;
+            await context.Response.WriteAsync(dataToSend);
         }
 
         public static string GetCallerId(string userId, string visitorId)
@@ -391,7 +213,7 @@ namespace VedAstro.Library
         /// Gets the public IP address of the client sending the HTTP request.
         /// Checks common headers for forwarded client IPs, handling case-insensitivity.
         /// </summary>
-        public static IPAddress GetCallerIp(this HttpRequestData req)
+        public static IPAddress GetCallerIp(this HttpRequest req)
         {
             // Common headers that may contain the client IP address
             const string ForwardedForHeader = "x-forwarded-for";
@@ -416,66 +238,15 @@ namespace VedAstro.Library
                 clientIp = azureClientIpValues.FirstOrDefault()?.Split(',').FirstOrDefault()?.Split(':').FirstOrDefault();
             }
 
+            // fall back to the transport-level remote IP (works for direct/local dev connections
+            // that don't go through a reverse proxy setting the headers above)
+            if (string.IsNullOrEmpty(clientIp))
+            {
+                clientIp = req.HttpContext?.Connection?.RemoteIpAddress?.ToString();
+            }
+
             // Attempt to parse the extracted IP address
             return IPAddress.TryParse(clientIp, out var ipAddress) ? ipAddress : IPAddress.None;
-        }
-
-
-        /// <summary>
-        /// Method from Azure Website
-        /// </summary>
-        public static async Task<string> DownloadToText(BlobClient blobClient)
-        {
-            var isFileExist = (await blobClient.ExistsAsync()).Value;
-
-            if (isFileExist)
-            {
-                BlobDownloadResult downloadResult = await blobClient.DownloadContentAsync();
-                string downloadedData = downloadResult.Content.ToString();
-
-                return downloadedData;
-            }
-            else
-            {
-                //will be logged by caller
-                throw new Exception($"No File in Cloud : {blobClient.Name}");
-            }
-
-        }
-
-
-        /// <summary>
-        /// Converts a blob client of a file to string
-        /// </summary>
-        public static async Task<string> BlobClientToString(BlobClient blobClient)
-        {
-            try
-            {
-                var xmlFileString = await DownloadToText(blobClient);
-
-                return xmlFileString;
-            }
-            catch (Exception e)
-            {
-                //APILogger.Error(e); //log it
-                throw new Exception($"Azure Storage Failure : {blobClient.Name}");
-            }
-
-            //Console.WriteLine(blobClient.Name);
-            //Console.WriteLine(blobClient.AccountName);
-            //Console.WriteLine(blobClient.BlobContainerName);
-            //Console.WriteLine(blobClient.Uri);
-            //Console.WriteLine(blobClient.CanGenerateSasUri);
-
-            //if does not exist raise alarm
-            if (!await blobClient.ExistsAsync())
-            {
-                Console.WriteLine("NO FILE!");
-            }
-
-            //parse string as xml doc
-            //var valueContent = blobClient.Download().Value.Content;
-            //Console.WriteLine("Text:"+Tools.StreamToString(valueContent));
         }
 
 
@@ -945,51 +716,12 @@ namespace VedAstro.Library
             return parsedTime;
         }
 
-        /// <summary>
-        /// Adds an XML element to XML document in by file & container name
-        /// and saves files directly to Azure blob store
-        /// </summary>
-        public static async Task AddXElementToXDocumentAzure(XElement dataXml, string fileName, string containerName)
-        {
-            //get user data list file (UserDataList.xml) Azure storage
-            var fileClient = await Tools.GetBlobClientAzure(fileName, containerName);
-
-            //add new log to main list
-            var updatedListXml = await AddXElementToXDocument(fileClient, dataXml);
-
-            //upload modified list to storage
-            await OverwriteBlobData(fileClient, updatedListXml);
-        }
-
         public static void AddXElementToXDocumentAzure(XElement dataXml, ref XDocument xDocument)
         {
 
             //add new log to main list
             AddXElementToXDocument(dataXml, ref xDocument);
 
-        }
-
-        /// <summary>
-        /// Overwrites new XML data to a blob file
-        /// </summary>
-        public static async Task OverwriteBlobData(BlobClient blobClient, XDocument newData)
-        {
-            //convert xml data to string
-            var dataString = newData.ToString();
-
-            //convert xml string to stream
-            var dataStream = GenerateStreamFromString(dataString);
-
-            var blobUploadOptions = new BlobUploadOptions();
-            blobUploadOptions.AccessTier = AccessTier.Cool; //save money!
-
-            //upload stream to blob
-            //note: no override needed because specifying BlobUploadOptions, is auto override
-            await blobClient.UploadAsync(dataStream, options: blobUploadOptions);
-
-            //auto correct content type from wrongly set "octet/stream"
-            var blobHttpHeaders = new BlobHttpHeaders { ContentType = "text/xml" };
-            await blobClient.SetHttpHeadersAsync(blobHttpHeaders);
         }
 
         public static Stream GenerateStreamFromString(string s)
@@ -1000,20 +732,6 @@ namespace VedAstro.Library
             writer.Flush();
             stream.Position = 0;
             return stream;
-        }
-
-        /// <summary>
-        /// Adds an XML element to XML document in blob form
-        /// </summary>
-        public static async Task<XDocument> AddXElementToXDocument(BlobClient xDocuBlobClient, XElement newElement)
-        {
-            //get person list from storage
-            var xDocument = await Tools.DownloadToXDoc(xDocuBlobClient);
-
-            //add new person to list
-            xDocument.Root.Add(newElement);
-
-            return xDocument;
         }
 
         public static void AddXElementToXDocument(XElement newElement, ref XDocument xDocument)
@@ -3670,28 +3388,28 @@ namespace VedAstro.Library
         public static Person GetPersonById(string personId, string ownerId = "")
         {
             // Initialize foundCalls to null
-            Pageable<PersonListEntity> foundCalls = null;
+            List<PersonListEntity> foundCalls;
 
             // if owner id is not provided, get person directly
             if (string.IsNullOrEmpty(ownerId))
             {
                 // Query without person Id, possible to return multiple values
-                foundCalls = AzureTable.PersonList.Query<PersonListEntity>(row => row.RowKey == personId);
+                foundCalls = Repositories.Person.Query().Where(row => row.RowKey == personId).ToList();
             }
             else
             {
                 // Query with both ownerId and personId for accurate hit
-                foundCalls = AzureTable.PersonList.Query<PersonListEntity>(row => row.PartitionKey == ownerId && row.RowKey == personId);
+                foundCalls = Repositories.Person.Query().Where(row => row.PartitionKey == ownerId && row.RowKey == personId).ToList();
             }
 
             // If person not found, check shared list
             if (!foundCalls.Any())
             {
-                var rawSharedList = AzureTable.PersonShareList.Query<PersonListEntity>(row => row.PartitionKey == ownerId && row.RowKey == personId);
+                var rawSharedList = Repositories.PersonShare.Query().Where(row => row.PartitionKey == ownerId && row.RowKey == personId).ToList();
                 // If share found, get person directly without original ownerId
                 if (rawSharedList.Any())
                 {
-                    foundCalls = AzureTable.PersonList.Query<PersonListEntity>(row => row.RowKey == personId);
+                    foundCalls = Repositories.Person.Query().Where(row => row.RowKey == personId).ToList();
                 }
             }
 
@@ -3720,68 +3438,6 @@ namespace VedAstro.Library
 
         }
 
-
-        /// <summary>
-        /// Gets XML file from Azure blob storage
-        /// </summary>
-        public static async Task<XDocument> GetXmlFileFromAzureStorage(string fileName, string blobContainerName)
-        {
-            var fileClient = await GetBlobClientAzure(fileName, blobContainerName);
-            var xmlFile = await DownloadToXDoc(fileClient);
-
-            return xmlFile;
-        }
-
-        /// <summary>
-        /// Converts a blob client of a file to an XML document
-        /// </summary>
-        public static async Task<XDocument> DownloadToXDoc(BlobClient blobClient)
-        {
-            var isFileExist = (await blobClient.ExistsAsync()).Value;
-
-            if (isFileExist)
-            {
-                XDocument xDoc;
-                await using (var stream = (await blobClient.DownloadStreamingAsync()).Value.Content)
-                {
-                    xDoc = await XDocument.LoadAsync(stream, LoadOptions.None, CancellationToken.None);
-                }
-
-#if DEBUG
-                Console.WriteLine($"Downloaded: {blobClient.Name}");
-#endif
-
-                return xDoc;
-            }
-            else
-            {
-                //will be logged by caller
-                throw new Exception($"No File in Cloud! : {blobClient.Name}");
-            }
-
-        }
-
-
-        /// <summary>
-        /// Gets file blob client from azure storage by name
-        /// </summary>
-        public static async Task<BlobClient> GetBlobClientAzure(string fileName, string blobContainerName)
-        {
-            //get the connection string stored separately (for security reasons)
-            //note: dark art secrets are in local.settings.json
-            var storageConnectionString = Secrets.Get("API_STORAGE");
-
-            //get image from storage
-            var blobContainerClient = new BlobContainerClient(storageConnectionString, blobContainerName);
-            var fileBlobClient = blobContainerClient.GetBlobClient(fileName);
-
-            return fileBlobClient;
-
-            //var returnStream = new MemoryStream();
-            //await fileBlobClient.DownloadToAsync(returnStream);
-
-            //return returnStream;
-        }
 
         /// <summary>
         /// INPUT:

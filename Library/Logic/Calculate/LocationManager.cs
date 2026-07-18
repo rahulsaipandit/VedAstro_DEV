@@ -1,5 +1,4 @@
 using System.Linq.Expressions;
-using Azure.Data.Tables;
 using Newtonsoft.Json.Linq;
 using System.Text.RegularExpressions;
 using System;
@@ -27,133 +26,32 @@ namespace VedAstro.Library
         /// </summary>
         public record GeoLocationRawAPI(dynamic MainRow, dynamic MetadataRow);
 
-        private readonly TableServiceClient timezoneServiceClient;
-        private readonly TableServiceClient timezoneMetadataServiceClient;
-        private readonly TableServiceClient addressServiceClient;
-        private readonly TableServiceClient searchAddressServiceClient;
-        private readonly TableServiceClient addressMetadataServiceClient;
-        private readonly TableServiceClient coordinatesServiceClient;
-        private readonly TableServiceClient coordinatesMetadataServiceClient;
-        private readonly TableServiceClient ipAddressServiceClient;
-        private readonly TableServiceClient ipAddressMetadataServiceClient;
-
-        private readonly TableClient timezoneTableClient;
-        private readonly TableClient timezoneMetadataTableClient;
-        private readonly TableClient addressTableClient;
-        private readonly TableClient searchAddressTableClient;
-        private readonly TableClient addressMetadataTableClient;
-        private readonly TableClient coordinatesTableClient;
-        private readonly TableClient coordinatesMetadataTableClient;
-        private readonly TableClient ipAddressTableClient;
-        private readonly TableClient ipAddressMetadataTableClient;
-
-
         public enum APIProvider
         {
             VedAstro, Azure, Google, IpData, CPU,
             LocalFile
         }
 
-
         /// <summary>
-        /// init Table access
+        /// NOTE: this class used to hold 9 raw Azure TableServiceClient/TableClient pairs built
+        /// directly against `https://{account}.table.core.windows.net/{table}` (bypassing
+        /// AzureTable.cs entirely, using a shared-key credential instead of a connection
+        /// string). That geolocation cache tier (the "VedAstro" provider below) has now been
+        /// wired up to Postgres via the 7 named repositories on Library/Logic/Repositories.cs
+        /// (Repositories.AddressGeoLocation, .CoordinatesGeoLocation, .GeoLocationTimezone,
+        /// .GeoLocationTimezoneMetadata, .IpAddressGeoLocation, .IpAddressGeoLocationMetadata,
+        /// .SearchAddressGeoLocation - same pattern as every other ported table, see
+        /// Data/AppDbContext.cs / Data/Repositories/NamedRepositories.cs / API/Program.cs). The
+        /// *_VedAstro read methods below now do a real lookup by the same PartitionKey/RowKey
+        /// shape the old Azure Table rows used, and the AddTo*Table methods do a real
+        /// UpsertAsync. The graceful-degradation behavior is preserved exactly: every call site
+        /// that writes to the cache is still wrapped in a try/catch that silently swallows
+        /// failures (e.g. Postgres briefly unavailable), so a broken/unreachable DB degrades
+        /// back to the Azure/Google/IpData/LocalFile/CPU providers further down, same as when
+        /// the old CentralStorageAccountName/CentralStorageKey secrets were missing.
         /// </summary>
         public LocationManager()
         {
-            try
-            {
-                string accountName = Secrets.Get("CentralStorageAccountName");
-
-                //#SEARCH ADDRESS
-                //------------------------------------
-                //Initialize address table 
-                string tableNameSearchAddress = "SearchAddressGeoLocation";
-
-                var storageUriSearchAddress = $"https://{accountName}.table.core.windows.net/{tableNameSearchAddress}";
-                //save reference for late use
-                searchAddressServiceClient = new TableServiceClient(new Uri(storageUriSearchAddress), new TableSharedKeyCredential(accountName, Secrets.Get("CentralStorageKey")));
-                searchAddressTableClient = searchAddressServiceClient.GetTableClient(tableNameSearchAddress);
-
-                //# ADDRESS
-                //------------------------------------
-                //Initialize address table 
-                string tableNameAddress = "AddressGeoLocation";
-
-                var storageUriAddress = $"https://{accountName}.table.core.windows.net/{tableNameAddress}";
-                //save reference for late use
-                addressServiceClient = new TableServiceClient(new Uri(storageUriAddress), new TableSharedKeyCredential(accountName, Secrets.Get("CentralStorageKey")));
-                addressTableClient = addressServiceClient.GetTableClient(tableNameAddress);
-
-                //Initialize address metadata table 
-                string tableNameAddressMetadata = "AddressGeoLocationMetadata";
-                var storageUriAddressMetadata = $"https://{accountName}.table.core.windows.net/{tableNameAddressMetadata}";
-
-                //save reference for late use
-                addressMetadataServiceClient = new TableServiceClient(new Uri(storageUriAddressMetadata), new TableSharedKeyCredential(accountName, Secrets.Get("CentralStorageKey")));
-                addressMetadataTableClient = addressMetadataServiceClient.GetTableClient(tableNameAddressMetadata);
-
-
-                //# COORDINATES
-                //------------------------------------
-                //Initialize coordinates table 
-                string tableNameCoordinates = "CoordinatesGeoLocation";
-
-                var storageUriCoordinates = $"https://{accountName}.table.core.windows.net/{tableNameCoordinates}";
-                //save reference for late use
-                coordinatesServiceClient = new TableServiceClient(new Uri(storageUriCoordinates), new TableSharedKeyCredential(accountName, Secrets.Get("CentralStorageKey")));
-                coordinatesTableClient = coordinatesServiceClient.GetTableClient(tableNameCoordinates);
-
-                //Initialize coordinates metadata table 
-                string tableNameCoordinatesMetadata = "CoordinatesGeoLocationMetadata";
-                var storageUriCoordinatesMetadata = $"https://{accountName}.table.core.windows.net/{tableNameCoordinatesMetadata}";
-
-                //save reference for late use
-                coordinatesMetadataServiceClient = new TableServiceClient(new Uri(storageUriCoordinatesMetadata), new TableSharedKeyCredential(accountName, Secrets.Get("CentralStorageKey")));
-                coordinatesMetadataTableClient = coordinatesMetadataServiceClient.GetTableClient(tableNameCoordinatesMetadata);
-
-
-                //# IP ADDRESS
-                //------------------------------------
-                //Initialize address table 
-                string tableNameIpAddress = "IpAddressGeoLocation";
-                var storageUriIpAddress = $"https://{accountName}.table.core.windows.net/{tableNameIpAddress}";
-                //save reference for late use
-                ipAddressServiceClient = new TableServiceClient(new Uri(storageUriIpAddress), new TableSharedKeyCredential(accountName, Secrets.Get("CentralStorageKey")));
-                ipAddressTableClient = ipAddressServiceClient.GetTableClient(tableNameIpAddress);
-
-                //Initialize address metadata table 
-                string tableNameIpAddressMetadata = "IpAddressGeoLocationMetadata";
-                var storageUriIpAddressMetadata = $"https://{accountName}.table.core.windows.net/{tableNameIpAddressMetadata}";
-
-                //save reference for late use
-                ipAddressMetadataServiceClient = new TableServiceClient(new Uri(storageUriIpAddressMetadata), new TableSharedKeyCredential(accountName, Secrets.Get("CentralStorageKey")));
-                ipAddressMetadataTableClient = ipAddressMetadataServiceClient.GetTableClient(tableNameIpAddressMetadata);
-
-
-                //# TIMEZONE
-                //------------------------------------
-                //Initialize timezone table 
-                string tableNameTimezone = "GeoLocationTimezone";
-                var storageUriTimezone = $"https://{accountName}.table.core.windows.net/{tableNameTimezone}";
-
-                //save reference for late use
-                timezoneServiceClient = new TableServiceClient(new Uri(storageUriTimezone), new TableSharedKeyCredential(accountName, Secrets.Get("CentralStorageKey")));
-                timezoneTableClient = timezoneServiceClient.GetTableClient(tableNameTimezone);
-
-                //Initialize timezone table 
-                string tableNameTimezoneMetadata = "GeoLocationTimezoneMetadata";
-                var storageUriTimezoneMetadata = $"https://{accountName}.table.core.windows.net/{tableNameTimezoneMetadata}";
-
-                //save reference for late use
-                timezoneMetadataServiceClient = new TableServiceClient(new Uri(storageUriTimezoneMetadata), new TableSharedKeyCredential(accountName, Secrets.Get("CentralStorageKey")));
-                timezoneMetadataTableClient = timezoneMetadataServiceClient.GetTableClient(tableNameTimezoneMetadata);
-            }
-            catch (Exception e)
-            {
-                //code can still continue, because God has
-                //placed local files in build folder to get location data
-                Console.WriteLine(e);
-            }
         }
 
 
@@ -199,7 +97,7 @@ namespace VedAstro.Library
                     try
                     {
                         //add new data to cache, for future speed up
-                        AddToAddressTable(fullGeoRowData.MainRow);
+                        await AddToAddressTable(fullGeoRowData.MainRow);
                     }
                     catch (Exception e)
                     {
@@ -252,7 +150,7 @@ namespace VedAstro.Library
                     try
                     {
                         //add new data to cache, for future speed up
-                        AddToSearchAddressTable(mainRow);
+                        await AddToSearchAddressTable(mainRow);
                     }
                     catch (Exception e)
                     {
@@ -313,8 +211,8 @@ namespace VedAstro.Library
                     try
                     {
                         //add new data to cache, for future speed up
-                        AddToIpAddressTable(fullGeoRowData.MainRow);
-                        AddToIpAddressMetadataTable(fullGeoRowData.MetadataRow);
+                        await AddToIpAddressTable(fullGeoRowData.MainRow);
+                        await AddToIpAddressMetadataTable(fullGeoRowData.MetadataRow);
                     }
                     catch (Exception e)
                     {
@@ -372,7 +270,7 @@ namespace VedAstro.Library
                     try
                     {
                         //add new data to cache, for future speed up
-                        AddToCoordinatesTable(fullGeoRowData.MainRow);
+                        await AddToCoordinatesTable(fullGeoRowData.MainRow);
                     }
                     catch (Exception e)
                     {
@@ -440,8 +338,8 @@ namespace VedAstro.Library
                     //NOTE: to support local development, since saving to azure db will be unavailable
                     try
                     {
-                        AddToTimezoneTable(fullGeoRowData.MainRow);
-                        AddToTimezoneMetadataTable(fullGeoRowData.MetadataRow);
+                        await AddToTimezoneTable(fullGeoRowData.MainRow);
+                        await AddToTimezoneMetadataTable(fullGeoRowData.MetadataRow);
                     }
                     catch (Exception e)
                     {
@@ -463,216 +361,83 @@ namespace VedAstro.Library
         //----------------------------------PRIVATE FUNCS-----------------------------
 
 
-        private void AddToTimezoneTable(GeoLocationTimezoneEntity newRow)
-        {
-            // If an identical entity exists, the call to
-            // AddEntity would cause a duplicate entry error.
-            // Therefore, before calling AddEntity,
-            // ensure that the entity does not already exist
-            try
-            {
-                timezoneTableClient.AddEntity(newRow);
-            }
-            catch (Exception e)
-            {
-                var errorMessage = $"Can't add duplicate GeoLocationTimezone row : PartKey:{newRow.PartitionKey}, RowKey:{newRow.RowKey}";
+        // NOTE: these AddTo*Table methods used to write to the raw Azure Table clients removed
+        // from the constructor above (see its header comment) - they now write for real via the
+        // Postgres-backed named repositories (Library/Logic/Repositories.cs). Every call site
+        // still wraps these in a try/catch that silently swallows failures, so a briefly
+        // unavailable Postgres instance degrades gracefully instead of breaking the feature -
+        // same behavior as when the old Azure secrets were missing.
+        private async Task AddToTimezoneTable(GeoLocationTimezoneEntity newRow) => await Repositories.GeoLocationTimezone.UpsertAsync(newRow);
 
-#if DEBUG
-                Console.WriteLine(errorMessage);
-#else
-                //LibLogger.Error(errorMessage);
-#endif
-                //this is critical and should not propagate!
+        private async Task AddToTimezoneMetadataTable(GeoLocationTimezoneMetadataEntity newRow) => await Repositories.GeoLocationTimezoneMetadata.UpsertAsync(newRow);
 
-                throw new Exception(errorMessage);
-            }
-        }
+        private async Task AddToIpAddressMetadataTable(IpAddressGeoLocationMetadataEntity newRow) => await Repositories.IpAddressGeoLocationMetadata.UpsertAsync(newRow);
 
-        private void AddToTimezoneMetadataTable(GeoLocationTimezoneMetadataEntity newRow)
-        {
-            // If an identical entity exists, the call to
-            // AddEntity would cause a duplicate entry error.
-            // Therefore, before calling AddEntity,
-            // ensure that the entity does not already exist
-            try
-            {
-                timezoneMetadataTableClient.AddEntity(newRow);
-            }
-            catch (Exception e)
-            {
-                //NOTE:
-                //here we expect multiple adds of same metadata row,
-                //so we do Add instead of Upsert to save money,
-                //and if fail because can't add then proceed as normal
-#if DEBUG
-                Console.WriteLine("Metadata already exist...continuing");
-#endif
-            }
+        private async Task AddToAddressTable(AddressGeoLocationEntity newRow) => await Repositories.AddressGeoLocation.UpsertAsync(newRow);
 
-        }
+        private async Task AddToSearchAddressTable(SearchAddressGeoLocationEntity newRow) => await Repositories.SearchAddressGeoLocation.UpsertAsync(newRow);
 
-        private void AddToIpAddressMetadataTable(IpAddressGeoLocationMetadataEntity newRow)
-        {
-            // If an identical entity exists, the call to
-            // AddEntity would cause a duplicate entry error.
-            // Therefore, before calling AddEntity,
-            // ensure that the entity does not already exist
-            try
-            {
-                ipAddressMetadataTableClient.AddEntity(newRow);
-            }
-            catch (Exception e)
-            {
-                //NOTE:
-                //here we expect multiple adds of same metadata row,
-                //so we do Add instead of Upsert to save money,
-                //and if fail because can't add then proceed as normal
-#if DEBUG
-                Console.WriteLine("Metadata already exist...continuing");
-#endif
-            }
+        private async Task AddToCoordinatesTable(CoordinatesGeoLocationEntity newRow) => await Repositories.CoordinatesGeoLocation.UpsertAsync(newRow);
 
-        }
-
-        private void AddToAddressTable(AddressGeoLocationEntity newRow)
-        {
-            // If an identical entity exists, the call to
-            // AddEntity would cause a duplicate entry error.
-            // Therefore, before calling AddEntity,
-            // ensure that the entity does not already exist
-            try
-            {
-                addressTableClient.AddEntity(newRow);
-            }
-            catch (Exception e)
-            {
-                var errorMessage = $"Can't add duplicate AddressGeoLocation row : PartKey:{newRow.PartitionKey}, RowKey:{newRow.RowKey}";
-
-#if DEBUG
-                Console.WriteLine(errorMessage);
-#else
-                //LibLogger.Error(errorMessage);
-#endif
-                //this is critical and should not propagate!
-
-                throw new Exception(errorMessage);
-            }
-        }
-
-        private void AddToSearchAddressTable(SearchAddressGeoLocationEntity newRow)
-        {
-            // If an identical entity exists, the call to
-            // AddEntity would cause a duplicate entry error.
-            // Therefore, before calling AddEntity,
-            // ensure that the entity does not already exist
-            try
-            {
-                searchAddressTableClient.AddEntity(newRow);
-            }
-            catch (Exception e)
-            {
-                var errorMessage = $"Can't add duplicate SearchAddressGeoLocation row : PartKey:{newRow.PartitionKey}, RowKey:{newRow.RowKey}";
-
-#if DEBUG
-                Console.WriteLine(errorMessage);
-#else
-                //LibLogger.Error(errorMessage);
-#endif
-                //this is critical and should not propagate!
-
-                throw new Exception(errorMessage);
-            }
-        }
-
-        private void AddToCoordinatesTable(CoordinatesGeoLocationEntity newRow)
-        {
-            // If an identical entity exists, the call to
-            // AddEntity would cause a duplicate entry error.
-            // Therefore, before calling AddEntity,
-            // ensure that the entity does not already exist
-            try
-            {
-                coordinatesTableClient.AddEntity(newRow);
-            }
-            catch (Exception e)
-            {
-                var errorMessage = $"Can't add duplicate CoordinatesGeoLocation row : PartKey:{newRow.PartitionKey}, RowKey:{newRow.RowKey}";
-
-#if DEBUG
-                Console.WriteLine(errorMessage);
-#else
-                //LibLogger.Error(errorMessage);
-#endif
-                //this is critical and should not propagate!
-
-                throw new Exception(errorMessage);
-            }
-        }
-
-        private void AddToIpAddressTable(IpAddressGeoLocationEntity newRow)
-        {
-            // If an identical entity exists, the call to
-            // AddEntity would cause a duplicate entry error.
-            // Therefore, before calling AddEntity,
-            // ensure that the entity does not already exist
-            try
-            {
-                ipAddressTableClient.AddEntity(newRow);
-            }
-            catch (Exception e)
-            {
-                var errorMessage = $"Can't add duplicate IpAddressGeoLocation row : PartKey:{newRow.PartitionKey}, RowKey:{newRow.RowKey}";
-
-#if DEBUG
-                Console.WriteLine(errorMessage);
-#else
-                //LibLogger.Error(errorMessage);
-#endif
-                //this is critical and should not propagate!
-
-                throw new Exception(errorMessage);
-            }
-        }
+        private async Task AddToIpAddressTable(IpAddressGeoLocationEntity newRow) => await Repositories.IpAddressGeoLocation.UpsertAsync(newRow);
 
 
 
 
         //--------------- VEDASTRO -----------------
         //note async is needed to maintain interop
+        //NOTE: real Postgres-backed cache reads now - see constructor's header comment. Any
+        //      lookup failure (e.g. DB briefly unreachable) is swallowed and reported as a
+        //      cache miss, same graceful-degradation behavior as everywhere else in this file.
 
         private async Task<GeoLocationRawAPI> IpAddressToGeoLocation_VedAstro(string ipAddress)
         {
-            //make a search for ip address stored under row key
-            Expression<Func<IpAddressGeoLocationEntity, bool>> expression = call => call.PartitionKey == ipAddress;
+            try
+            {
+                //key shape from TryParseIpDataCoordinatesResponse: PartitionKey = ipAddress, RowKey = ""
+                var mainRow = await Repositories.IpAddressGeoLocation.GetAsync(ipAddress, "");
+                if (mainRow == null) { return new GeoLocationRawAPI(IpAddressGeoLocationEntity.Empty, null); }
 
-            //execute search
-            var recordFound = ipAddressTableClient.Query(expression).FirstOrDefault();
+                IpAddressGeoLocationMetadataEntity metadataRow = null;
+                if (!string.IsNullOrEmpty(mainRow.MetadataHash))
+                {
+                    metadataRow = await Repositories.IpAddressGeoLocationMetadata.GetAsync(mainRow.MetadataHash, "0");
+                }
 
-            //if old call found check if running else default false
-            //NOTE : important return empty, because used to detect later if empty
-            var foundRaw = recordFound ?? IpAddressGeoLocationEntity.Empty;
-
-            //we don't supply metadata cause not needed, as separate query
-            return new GeoLocationRawAPI(foundRaw, null);
+                return new GeoLocationRawAPI(mainRow, metadataRow);
+            }
+            catch (Exception)
+            {
+                return new GeoLocationRawAPI(IpAddressGeoLocationEntity.Empty, null);
+            }
         }
 
         private async Task<GeoLocationRawAPI> GeoLocationToTimezone_Vedastro(GeoLocation geoLocation, DateTimeOffset timeAtLocation)
         {
+            try
+            {
+                //key shape from TryParseGoogleTimeZoneResponse/TryParseAzureTimeZoneResponse:
+                //PartitionKey = geoLocation.ToPartitionKey(), RowKey = rounded-to-day time (offset already
+                //normalized to Zero by the caller before any provider - including this one - is invoked)
+                var partitionKey = geoLocation.ToPartitionKey();
+                DateTimeOffset roundedTime = new DateTimeOffset(timeAtLocation.Year, timeAtLocation.Month, timeAtLocation.Day, 0, 0, 0, timeAtLocation.Offset);
+                var rowKey = roundedTime.ToRowKey();
 
-            //HANDLE LOCATIONS WHERE DST (DAYLIGHT SAVINGS)
+                var mainRow = await Repositories.GeoLocationTimezone.GetAsync(partitionKey, rowKey);
+                if (mainRow == null) { return new GeoLocationRawAPI(GeoLocationTimezoneEntity.Empty, null); }
 
-            //do search only with latitude, longitude and time
-            Expression<Func<GeoLocationTimezoneEntity, bool>> expression = call => call.PartitionKey == geoLocation.ToPartitionKey() //lat & long 
-                                                                                && call.RowKey == timeAtLocation.ToRowKey();
+                GeoLocationTimezoneMetadataEntity metadataRow = null;
+                if (!string.IsNullOrEmpty(mainRow.MetadataHash))
+                {
+                    metadataRow = await Repositories.GeoLocationTimezoneMetadata.GetAsync(mainRow.MetadataHash, "0");
+                }
 
-            var recordFound = timezoneTableClient?.Query(expression).FirstOrDefault();
-
-            //get timezone data out
-            var foundRaw = recordFound ?? GeoLocationTimezoneEntity.Empty;
-
-            //we don't supply metadata cause not needed, as separate query
-            return new GeoLocationRawAPI(foundRaw, null);
-
+                return new GeoLocationRawAPI(mainRow, metadataRow);
+            }
+            catch (Exception)
+            {
+                return new GeoLocationRawAPI(GeoLocationTimezoneEntity.Empty, null);
+            }
         }
 
         private async Task<GeoLocationRawAPI> GeoLocationToTimezone_CPU(GeoLocation geoLocation, DateTimeOffset timeAtLocation)
@@ -706,34 +471,32 @@ namespace VedAstro.Library
         /// </summary>
         private async Task<GeoLocationRawAPI> AddressToGeoLocation_VedAstro(string userInputAddress)
         {
-            //do direct search for address in name field
-            Expression<Func<AddressGeoLocationEntity, bool>> expression = call => call.RowKey == userInputAddress;
-
-            var recordFound = addressTableClient?.Query(expression).FirstOrDefault();
-
-            //if old call found check if running else default false
-            //NOTE : important return empty, because used to detect later if empty
-            var foundRaw = recordFound ?? AddressGeoLocationEntity.Empty;
-
-            //we don't supply metadata cause not needed, as separate query
-            return new GeoLocationRawAPI(foundRaw, null);
-
+            try
+            {
+                //key shape from TryParseAzureAddressResponse/TryParseGoogleAddressResponse:
+                //PartitionKey = fullName (unknown at read time), RowKey = cleaned user input address
+                //(userInputAddress here is already cleaned by the caller) - so look up by RowKey only.
+                var foundRaw = Repositories.AddressGeoLocation.Query().FirstOrDefault(e => e.RowKey == userInputAddress);
+                return new GeoLocationRawAPI(foundRaw ?? AddressGeoLocationEntity.Empty, null);
+            }
+            catch (Exception)
+            {
+                return new GeoLocationRawAPI(AddressGeoLocationEntity.Empty, null);
+            }
         }
 
         private async Task<GeoLocationRawAPI> SearchAddressToGeoLocation_VedAstro(string userInputAddress)
         {
-            //do direct search for address in name field
-            Expression<Func<SearchAddressGeoLocationEntity, bool>> expression = call => call.PartitionKey == userInputAddress;
-
-            var recordFound = searchAddressTableClient.Query(expression).FirstOrDefault();
-
-            //if old call found check if running else default false
-            //NOTE : important return empty, because used to detect later if empty
-            var foundRaw = recordFound ?? SearchAddressGeoLocationEntity.Empty;
-
-            //we don't supply metadata cause not needed, as separate query
-            return new GeoLocationRawAPI(foundRaw, null);
-
+            try
+            {
+                //key shape from TryParseAzureSearchAddressResponse: PartitionKey = userInputAddress, RowKey = ""
+                var foundRaw = await Repositories.SearchAddressGeoLocation.GetAsync(userInputAddress, "");
+                return new GeoLocationRawAPI(foundRaw ?? SearchAddressGeoLocationEntity.Empty, null);
+            }
+            catch (Exception)
+            {
+                return new GeoLocationRawAPI(SearchAddressGeoLocationEntity.Empty, null);
+            }
         }
 
         /// <summary>
@@ -741,17 +504,18 @@ namespace VedAstro.Library
         /// </summary>
         private async Task<GeoLocationRawAPI> CoordinatesToGeoLocation_Vedastro(double longitude, double latitude)
         {
-            var linqEntities = coordinatesTableClient.Query<CoordinatesGeoLocationEntity>(
-                    call => call.PartitionKey == latitude.ToString() && call.RowKey == longitude.ToString())
-                .FirstOrDefault();
+            try
+            {
+                //key shape from TryParseGoogleCoordinatesResponse: PartitionKey = latitude.ToString(), RowKey = longitude.ToString()
+                var foundRaw = await Repositories.CoordinatesGeoLocation.GetAsync(latitude.ToString(), longitude.ToString());
 
-            //if old call found check if running else default false
-            //NOTE : important return empty, because used to detect later if empty
-            var foundRaw = linqEntities ?? CoordinatesGeoLocationEntity.Empty;
-
-            //we don't supply metadata cause not needed, as separate query
-            return new GeoLocationRawAPI(foundRaw, null);
-
+                //we don't supply metadata cause not needed, as separate query
+                return new GeoLocationRawAPI(foundRaw ?? CoordinatesGeoLocationEntity.Empty, null);
+            }
+            catch (Exception)
+            {
+                return new GeoLocationRawAPI(CoordinatesGeoLocationEntity.Empty, null);
+            }
         }
 
 
