@@ -3406,10 +3406,10 @@ class HoroscopeChat {
     SelectedTopicId = "";  //she's filled in when set
     SelectedTopicText = "";//she's filled in when set
     ServerURL = ""; //filled in later just before use
-    //LiveServerURL = "http://localhost:7071/api/Calculate";
-    //LiveServerURL = "https://vedastroapi.azurewebsites.net/api/Calculate";
-    LiveServerURL = "https://vedastroapi.azurewebsites.net/api/Calculate";
-    //LocalServerURL = "http://localhost:7071/api/Calculate/HoroscopeChat";
+    //same "DebugMode" flag set by the sidebar "Local API" toggle (see MainLayout.razor OnClickDebugMode)
+    LiveServerURL = localStorage.getItem("DebugMode")
+        ? "http://localhost:7071/api/Calculate"
+        : "https://vedastroapi.azurewebsites.net/api/Calculate";
     ElementID = ""; //ID of main div where table & header will be injected
     ShowHeader = true; //default enabled, header with title, icon and edit button
     HeaderIcon = "twemoji:ringed-planet"; //default enabled, header with title, icon and edit button
