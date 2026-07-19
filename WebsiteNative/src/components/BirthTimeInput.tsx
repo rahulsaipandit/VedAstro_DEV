@@ -43,24 +43,47 @@ function clampToRange(raw: string, min: number, max: number, digits: number): st
   return String(n).padStart(digits, '0');
 }
 
+type Meridiem = 'AM' | 'PM';
+
+// value.hh stays 24-hour ("00".."23", matches Time.cs's StdTime wire format) — these only
+// convert for display/editing, mirroring the mock's native `<input type="time">`, which shows a
+// 12-hour + AM/PM segment in the browser despite its underlying value being 24-hour.
+function to12Hour(hh24: string): { hour12: string; meridiem: Meridiem } {
+  if (hh24 === '') return { hour12: '', meridiem: 'AM' };
+  const h = Number(hh24);
+  const meridiem: Meridiem = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return { hour12: pad2(h12), meridiem };
+}
+
+function to24Hour(hour12: string, meridiem: Meridiem): string {
+  if (hour12 === '') return '';
+  let h = Number(hour12) % 12;
+  if (meridiem === 'PM') h += 12;
+  return pad2(h);
+}
+
 /**
  * Matches the "Add New Person" mock: a single "Hour" field and a single "Date of birth" field,
  * each a compact tappable box (like the mock's native `<input type="time">`/`<input
  * type="date">`, complete with a leading clock/calendar icon). "Hour" opens a sheet with typed
- * Hour/Minute boxes (no native time picker library is installed for RN). "Date of birth" opens a
+ * Hour/Minute boxes plus an AM/PM toggle — 12-hour display over a 24-hour value, matching how the
+ * mock's native time input actually renders (no native date/time picker library is installed for
+ * RN, so this is a custom equivalent). "Date of birth" opens a
  * react-native-calendars month view — works identically on web and native, unlike a native
  * platform date picker — with Month/Year quick-jump dropdowns above it so picking a birth date
- * decades back doesn't mean arrow-clicking one month at a time. 24-hour, matching the mock's
- * `type="time"` value ("08:30", no AM/PM) rather than a 12-hour + meridian split.
+ * decades back doesn't mean arrow-clicking one month at a time.
  */
 export function BirthTimeInput({
   apiUrlDirect,
   value,
   onChange,
+  defaultCountry,
 }: {
   apiUrlDirect: string;
   value: BirthTimeInputValue;
   onChange: (value: BirthTimeInputValue) => void;
+  defaultCountry?: string;
 }) {
   const theme = useTheme();
   const [timeSheetOpen, setTimeSheetOpen] = useState(false);
@@ -98,7 +121,17 @@ export function BirthTimeInput({
     setDateSheetOpen(false);
   }
 
-  const timeDisplay = value.hh && value.min ? `${value.hh}:${value.min}` : '';
+  const { hour12, meridiem } = to12Hour(value.hh);
+
+  function setHour12(h12: string) {
+    set('hh', to24Hour(h12, meridiem));
+  }
+
+  function setMeridiem(next: Meridiem) {
+    set('hh', to24Hour(hour12 || '12', next));
+  }
+
+  const timeDisplay = hour12 && value.min ? `${hour12}:${value.min} ${meridiem}` : '';
   const dateDisplay = value.dd && value.mm && value.yyyy ? `${value.dd}/${value.mm}/${value.yyyy}` : '';
   const markedDates =
     value.dd && value.mm && value.yyyy
@@ -118,7 +151,7 @@ export function BirthTimeInput({
             onPress={() => setTimeSheetOpen(true)}
             style={[styles.compactField, { borderColor: theme.backgroundSelected }]}>
             <ThemedText themeColor={timeDisplay ? 'text' : 'textSecondary'} style={styles.compactFieldText}>
-              {timeDisplay || 'HH:MM'}
+              {timeDisplay || 'HH:MM AM/PM'}
             </ThemedText>
             <Icon name="clock" size={16} color={theme.textSecondary} />
           </Pressable>
@@ -140,17 +173,18 @@ export function BirthTimeInput({
         apiUrlDirect={apiUrlDirect}
         location={value.location}
         onChange={(location) => set('location', location)}
+        defaultCountry={defaultCountry}
       />
 
       <PickerSheet visible={timeSheetOpen} title="Birth Hour" onClose={() => setTimeSheetOpen(false)}>
         <SelectField
           label="Hour"
-          value={value.hh}
+          value={hour12}
           placeholder="HH"
           width={64}
           maxLength={2}
-          clamp={(raw) => clampToRange(raw, 0, 23, 2)}
-          onChange={(v) => set('hh', v)}
+          clamp={(raw) => clampToRange(raw, 1, 12, 2)}
+          onChange={setHour12}
         />
         <ThemedText>:</ThemedText>
         <SelectField
@@ -162,6 +196,7 @@ export function BirthTimeInput({
           clamp={(raw) => clampToRange(raw, 0, 59, 2)}
           onChange={(v) => set('min', v)}
         />
+        <MeridiemToggle value={meridiem} onChange={setMeridiem} />
       </PickerSheet>
 
       <PickerSheet
@@ -248,6 +283,30 @@ function PickerSheet({
         {content}
       </ThemedView>
     </Modal>
+  );
+}
+
+function MeridiemToggle({ value, onChange }: { value: Meridiem; onChange: (v: Meridiem) => void }) {
+  const theme = useTheme();
+  return (
+    <ThemedView style={meridiemStyles.container}>
+      <ThemedText style={styles.selectMicroLabel} themeColor="textSecondary">
+        {' '}
+      </ThemedText>
+      <ThemedView style={[meridiemStyles.wrapper, { borderColor: theme.backgroundSelected }]}>
+        {(['AM', 'PM'] as const).map((opt) => {
+          const active = value === opt;
+          return (
+            <Pressable
+              key={opt}
+              onPress={() => onChange(opt)}
+              style={[meridiemStyles.option, active && { backgroundColor: AccentColor }]}>
+              <ThemedText style={[meridiemStyles.optionText, active && meridiemStyles.optionTextActive]}>{opt}</ThemedText>
+            </Pressable>
+          );
+        })}
+      </ThemedView>
+    </ThemedView>
   );
 }
 
@@ -365,6 +424,33 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.one,
     textAlign: 'center',
+    outlineWidth: 0,
+  },
+});
+
+const meridiemStyles = StyleSheet.create({
+  container: {
+    gap: 4,
+  },
+  wrapper: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+    height: 44,
+  },
+  option: {
+    minWidth: 44,
+    paddingHorizontal: Spacing.two,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  optionTextActive: {
+    color: '#ffffff',
   },
 });
 

@@ -13,9 +13,8 @@ import { useTheme } from '@/hooks/use-theme';
 import { useAppStore } from '@/store/useAppStore';
 import { addPerson, getPersonList, getPublicPersonList, type Person } from '@/lib/api/person';
 import { buildBirthTimeJsonFromWallClock } from '@/lib/time';
-import { getTimezoneOffsetForLocation } from '@/lib/api/geo';
+import { getTimezoneOffsetForLocation, type GeoLocation } from '@/lib/api/geo';
 import { showErrorToast, showSuccessToast } from '@/lib/toast';
-import { DEFAULT_GEO_LOCATION } from '@/components/GeoLocationInput';
 import { loadCalculationPreferences, saveCalculationPreferences, type CalculationPreferences } from '@/lib/preferences';
 import { PageRoute } from '@/constants/routes';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -27,8 +26,17 @@ const GENDER_OPTIONS = [
 
 const AccentColor = '#2F6FED';
 
-function blankBirthTime(): BirthTimeInputValue {
-  return { dd: '', mm: '', yyyy: '', hh: '', min: '', location: DEFAULT_GEO_LOCATION };
+// Prefill defaults differ by environment (see useAppStore's debugMode / CLAUDE.md's "Local API"
+// toggle): production defaults to a real-looking but generic US location, while localhost
+// prefills a full dev-convenience test record so manual testing doesn't start from a blank form.
+const SEATTLE_LOCATION: GeoLocation = { name: 'Seattle', longitude: -122.3321, latitude: 47.6062 };
+const BHOPAL_LOCATION: GeoLocation = { name: 'Bhopal', longitude: 77.4126, latitude: 23.2599 };
+
+function blankBirthTime(debugMode: boolean): BirthTimeInputValue {
+  if (debugMode) {
+    return { dd: '26', mm: '01', yyyy: '1975', hh: '16', min: '20', location: BHOPAL_LOCATION };
+  }
+  return { dd: '', mm: '', yyyy: '', hh: '', min: '', location: SEATTLE_LOCATION };
 }
 
 /**
@@ -48,10 +56,11 @@ export default function AddPersonScreen() {
   const apiUrlDirect = useAppStore((s) => s.apiUrlDirect());
   const effectiveOwnerId = useAppStore((s) => s.effectiveOwnerId());
   const visitorId = useAppStore((s) => s.visitorId);
+  const debugMode = useAppStore((s) => s.debugMode);
 
-  const [nameInput, setNameInput] = useState('');
-  const [gender, setGender] = useState<'Male' | 'Female' | ''>('');
-  const [birthTime, setBirthTime] = useState<BirthTimeInputValue>(blankBirthTime());
+  const [nameInput, setNameInput] = useState(debugMode ? 'Rahul Pandit' : '');
+  const [gender, setGender] = useState<'Male' | 'Female' | ''>(debugMode ? 'Male' : '');
+  const [birthTime, setBirthTime] = useState<BirthTimeInputValue>(() => blankBirthTime(debugMode));
   const [saving, setSaving] = useState(false);
 
   const [useSavedProfile, setUseSavedProfile] = useState(false);
@@ -179,7 +188,12 @@ export default function AddPersonScreen() {
           </ThemedText>
         </ThemedView>
 
-        <BirthTimeInput apiUrlDirect={apiUrlDirect} value={birthTime} onChange={setBirthTime} />
+        <BirthTimeInput
+          apiUrlDirect={apiUrlDirect}
+          value={birthTime}
+          onChange={setBirthTime}
+          defaultCountry={debugMode ? 'India' : 'United States'}
+        />
 
         <ThemedView style={styles.fieldGroup}>
           <ThemedText style={styles.fieldLabel}>
@@ -311,6 +325,7 @@ const styles = StyleSheet.create({
   input: {
     paddingVertical: Spacing.three,
     fontWeight: '600',
+    outlineWidth: 0,
   },
   fieldGroup: {
     gap: Spacing.one,

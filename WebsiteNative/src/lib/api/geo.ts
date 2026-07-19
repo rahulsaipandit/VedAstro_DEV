@@ -58,7 +58,10 @@ export async function searchGeoLocation(apiUrlDirect: string, address: string): 
   const response = await fetch(`${apiUrlDirect}/Calculate/AddressToGeoLocation/Address/${encodeURIComponent(address)}`);
   const json = await response.json();
   if (json.Status !== 'Pass') return null;
-  const location = geoLocationFromJson(json.Payload);
+  // Calculate/* responses nest the actual value one level deeper, keyed by calculator name (see
+  // timeTools.ts's callTimeCalculator) — reading json.Payload directly here always returned
+  // undefined fields, so every search silently resolved to "not found".
+  const location = geoLocationFromJson(json.Payload?.AddressToGeoLocation ?? json.Payload);
   if (!location.name || (location.longitude === 0 && location.latitude === 0)) return null;
   return location;
 }
@@ -79,7 +82,7 @@ export async function reverseGeocodeLocation(
   );
   const json = await response.json();
   if (json.Status !== 'Pass') return null;
-  const location = geoLocationFromJson(json.Payload);
+  const location = geoLocationFromJson(json.Payload?.CoordinatesToGeoLocation ?? json.Payload);
   if (!location.name) return null;
   return location;
 }
@@ -94,5 +97,5 @@ export async function getTimezoneOffsetForLocation(
   const response = await fetch(url);
   const json = await response.json();
   if (json.Status !== 'Pass') throw new Error('Failed to get timezone offset');
-  return json.Payload as string;
+  return (json.Payload?.GeoLocationToTimezone ?? json.Payload) as string;
 }

@@ -14,6 +14,18 @@ import { showErrorToast } from '@/lib/toast';
 const COUNTRY_OPTIONS = COUNTRIES.map((name) => ({ label: name, value: name }));
 const AccentColor = '#2F6FED';
 
+// Nominatim's display_name ends with the country ("Bhopal, Madhya Pradesh, India") — pull that
+// last segment and match it against our own COUNTRIES list so the Country chip stays in sync with
+// whatever was actually resolved. Matters beyond just UX: handleSearch appends the currently
+// selected country to the next query as a disambiguation hint, so a stale/mismatched selection
+// silently corrupts the next search (e.g. "Bhopal, United States" resolves to nonsense).
+function matchCountryFromDisplayName(displayName: string): string | null {
+  const parts = displayName.split(',').map((p) => p.trim());
+  const last = parts[parts.length - 1];
+  if (!last) return null;
+  return COUNTRIES.find((c) => c.toLowerCase() === last.toLowerCase()) ?? null;
+}
+
 /**
  * Port of ViewComponents/Components/GeoLocationInput.razor. Real geocoding, not a stub — backed
  * by Calculate.AddressToGeoLocation for forward search and Calculate.CoordinatesToGeoLocation for
@@ -28,14 +40,16 @@ export function GeoLocationInput({
   location,
   onChange,
   label = 'Birth location',
+  defaultCountry = '',
 }: {
   apiUrlDirect: string;
   location: GeoLocation;
   onChange: (location: GeoLocation) => void;
   label?: string;
+  defaultCountry?: string;
 }) {
   const theme = useTheme();
-  const [country, setCountry] = useState('');
+  const [country, setCountry] = useState(defaultCountry);
   const [nameInput, setNameInput] = useState(location.name);
   const [searching, setSearching] = useState(false);
   const [detecting, setDetecting] = useState(false);
@@ -47,11 +61,23 @@ export function GeoLocationInput({
     setSearching(true);
     setNotFound(false);
     try {
-      const query = country ? `${nameInput.trim()}, ${country}` : nameInput.trim();
-      const found = await searchGeoLocation(apiUrlDirect, query);
+      const trimmed = nameInput.trim();
+      const query = country ? `${trimmed}, ${country}` : trimmed;
+      let found = await searchGeoLocation(apiUrlDirect, query);
+
+      // A stale/mismatched Country selection can push Nominatim into a bogus match instead of
+      // failing outright (e.g. "Bhopal, United States" resolves to "United States, United
+      // States"). Sanity-check the result actually mentions what was typed; if not, the country
+      // filter likely fought the real match, so retry without it.
+      if (found && country && !found.name.toLowerCase().includes(trimmed.toLowerCase())) {
+        found = await searchGeoLocation(apiUrlDirect, trimmed);
+      }
+
       if (found) {
         onChange(found);
         setNameInput(found.name);
+        const matchedCountry = matchCountryFromDisplayName(found.name);
+        if (matchedCountry) setCountry(matchedCountry);
       } else {
         setNotFound(true);
       }
@@ -74,6 +100,8 @@ export function GeoLocationInput({
           const detected: GeoLocation = resolved ?? { name: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, latitude, longitude };
           onChange(detected);
           setNameInput(detected.name);
+          const matchedCountry = matchCountryFromDisplayName(detected.name);
+          if (matchedCountry) setCountry(matchedCountry);
         } finally {
           setDetecting(false);
         }
@@ -93,8 +121,12 @@ export function GeoLocationInput({
       </ThemedText>
 
       <ThemedView style={[styles.searchRow, { borderColor: theme.backgroundSelected }]}>
-        <Pressable onPress={handleSearch} hitSlop={8}>
-          <Icon name="search" size={16} color={theme.textSecondary} />
+        <Pressable onPress={handleSearch} disabled={searching} hitSlop={8} style={styles.searchIconButton}>
+          {searching ? (
+            <ActivityIndicator size="small" color={theme.textSecondary} />
+          ) : (
+            <Icon name="search" size={16} color={theme.textSecondary} />
+          )}
         </Pressable>
         <TextInput
           value={nameInput}
@@ -179,16 +211,22 @@ const styles = StyleSheet.create({
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
+    gap: Spacing.one,
     borderWidth: 1,
     borderRadius: 8,
-    paddingLeft: Spacing.three,
+    paddingLeft: Spacing.one,
     paddingRight: Spacing.one,
     minHeight: 44,
+  },
+  searchIconButton: {
+    padding: Spacing.two,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchInput: {
     flex: 1,
     paddingVertical: Spacing.two,
+    outlineWidth: 0,
   },
   locateButton: {
     flexDirection: 'row',

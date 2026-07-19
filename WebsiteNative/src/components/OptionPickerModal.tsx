@@ -133,6 +133,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
+    outlineWidth: 0,
   },
   groupLabel: {
     textTransform: 'uppercase',
