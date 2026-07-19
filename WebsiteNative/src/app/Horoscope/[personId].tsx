@@ -10,6 +10,7 @@ import { PlanetDataTable } from '@/components/PlanetDataTable';
 import { HouseDataTable } from '@/components/HouseDataTable';
 import { AshtakvargaTable } from '@/components/AshtakvargaTable';
 import { HoroscopeReferenceList } from '@/components/HoroscopeReferenceList';
+import { StrengthChart } from '@/components/StrengthChart';
 import { useAppStore } from '@/store/useAppStore';
 import { getPersonList, getPublicPersonList, type Person } from '@/lib/api/person';
 import {
@@ -24,6 +25,7 @@ import {
   type HouseTableRow,
   type PlanetTableRow,
 } from '@/lib/api/horoscope';
+import { loadCalculationPreferences } from '@/lib/preferences';
 import { Spacing, MaxContentWidth } from '@/constants/theme';
 
 const AYANAMSA_OPTIONS = ['LahiriChitrapaksha', 'Raman', 'KrishnamurtiKP', 'FaganBradley', 'Yukteshwar', 'J2000'];
@@ -41,6 +43,13 @@ export default function HoroscopeResultScreen() {
 
   const [ayanamsa, setAyanamsa] = useState(DEFAULT_AYANAMSA);
   const [chartStyle, setChartStyle] = useState<'South' | 'North'>('South');
+
+  // Seeds from the same "Advanced Options" preference set on the Add/Edit Person screens (see
+  // src/lib/preferences.ts) so a calculation-method choice made there actually has an effect
+  // somewhere, rather than only being saved and never read.
+  useEffect(() => {
+    loadCalculationPreferences().then((prefs) => setAyanamsa(prefs.ayanamsa));
+  }, []);
 
   const [predictions, setPredictions] = useState<HoroscopePrediction[]>([]);
   const [planetRows, setPlanetRows] = useState<PlanetTableRow[]>([]);
@@ -145,6 +154,13 @@ export default function HoroscopeResultScreen() {
           <ActivityIndicator style={styles.tablesLoading} />
         ) : (
           <>
+            <ThemedView style={styles.section}>
+              <ThemedText type="smallBold" style={styles.sectionTitle}>
+                Strength
+              </ThemedText>
+              <StrengthChart apiUrlDirect={apiUrlDirect} person={person} />
+            </ThemedView>
+
             <ThemedView style={styles.section}>
               <ThemedText type="smallBold" style={styles.sectionTitle}>
                 Planet Table

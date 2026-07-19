@@ -1,11 +1,12 @@
 ﻿using System;
+using Newtonsoft.Json.Linq;
 
 namespace VedAstro.Library
 {
     /// <summary>
-    /// Simple data type to encapsulate 
+    /// Simple data type to encapsulate
     /// </summary>
-    public struct Shashtiamsa
+    public struct Shashtiamsa : IToJson
     {
         //CONST FIELDS
         public static readonly Shashtiamsa Zero = new Shashtiamsa(0);
@@ -38,6 +39,27 @@ namespace VedAstro.Library
 
         //This divided by 60 will give shashtiamsa in rupas
         public double ToRupa() => _shashtiamsaAsDouble / 60;
+
+
+        #region JSON SUPPORT
+
+        //struct had no public properties, only methods - the generic reflection-based JSON
+        //serializer (API/FrontDesk/APITools.cs's ToPayloadJson) falls back to an empty "{}" for
+        //that shape, silently breaking any endpoint returning Shashtiamsa (PlanetShadbalaPinda,
+        //HouseStrength, etc. - see Library/Logic/Calculate/CoreStrength.cs). Mirrors Angle.cs's
+        //IToJson pattern.
+        JObject IToJson.ToJson() => (JObject)this.ToJson();
+
+        public JToken ToJson()
+        {
+            var temp = new JObject();
+            temp["AsDouble"] = _shashtiamsaAsDouble;
+            temp["AsRupa"] = ToRupa();
+
+            return temp;
+        }
+
+        #endregion
 
 
         //OPERATOR OVERRIDES

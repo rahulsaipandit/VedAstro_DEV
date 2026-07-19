@@ -59,7 +59,7 @@ namespace API
                     var requestJson = await APITools.ExtractDataFromRequestJson(context);
                     var person = Person.FromJson(requestJson);
 
-                    var result = await UpdatePerson(person.OwnerId, person.Id, person.BirthTime, person.Name, person.Gender, person.Notes);
+                    var result = await UpdatePerson(person.OwnerId, person.Id, person.BirthTime, person.Name, person.Gender, person.Notes, person.LifeEventList);
                     await APITools.PassMessageJson(result, context);
                 }
                 catch (Exception e)
@@ -103,13 +103,16 @@ namespace API
         /// <summary>
         /// Note "Timezone not respected"
         /// </summary>
-        public static async Task<string> UpdatePerson(string ownerId, string personId, Time birthTime, string personName, Gender gender, string notes = "")
+        public static async Task<string> UpdatePerson(string ownerId, string personId, Time birthTime, string personName, Gender gender, string notes = "", List<LifeEvent> lifeEventList = null)
         {
             //don't allow add for public person's
             if (ownerId == "101") { throw new Exception("You can not add/edit public profiles with ID 101"); }
 
             //pack the data
-            var personParsed = new Person(ownerId, personId, personName, birthTime, gender, notes);
+            //NOTE: lifeEventList must be threaded through here - previously this always defaulted to
+            //an empty list (the Person ctor's default), silently wiping every person's journal
+            //entries on every profile save. Found while porting the Journal page to WebsiteNative.
+            var personParsed = new Person(ownerId, personId, personName, birthTime, gender, notes, lifeEventList);
 
             //delete data related to person (NOT USER, PERSON PROFILE)
             await AzureCache.DeleteCacheRelatedToPerson(personParsed);
@@ -117,8 +120,38 @@ namespace API
             //person updated based on Person ID which is immutable
             await Repositories.Person.UpsertAsync(personParsed.ToAzureRow());
 
+            //sync life events table to match exactly what was sent (Person.ToAzureRow() above
+            //doesn't carry LifeEventList - it lives in its own table, keyed by person ID as
+            //partition key - so it needs its own upsert/delete pass here or edits/deletes made
+            //client-side would never actually persist).
+            await SyncLifeEvents(personId, personParsed.LifeEventList);
+
             return "Updated!";
 
+        }
+
+        /// <summary>
+        /// Makes Repositories.LifeEvent's rows for this person match the given list exactly:
+        /// upserts everything present, deletes anything in the DB but no longer in the list.
+        /// </summary>
+        private static async Task SyncLifeEvents(string personId, List<LifeEvent> lifeEventList)
+        {
+            var existingIds = Repositories.LifeEvent.Query()
+                .Where(row => row.PartitionKey == personId)
+                .Select(row => row.RowKey)
+                .ToList();
+
+            var newIds = lifeEventList.Select(le => le.Id).ToHashSet();
+
+            foreach (var removedId in existingIds.Where(id => !newIds.Contains(id)))
+            {
+                await Repositories.LifeEvent.DeleteAsync(personId, removedId);
+            }
+
+            foreach (var lifeEvent in lifeEventList)
+            {
+                await Repositories.LifeEvent.UpsertAsync(lifeEvent.ToAzureRow());
+            }
         }
 
         /// <summary>
@@ -144,6 +177,9 @@ namespace API
 
             //# do final delete from MAIN DATABASE
             await Repositories.Person.DeleteAsync(ownerId, personId);
+
+            //# also clean up this person's life events (own table, not cascaded automatically)
+            await SyncLifeEvents(personId, new List<LifeEvent>());
 
             return "Updated!";
 

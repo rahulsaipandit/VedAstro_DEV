@@ -181,6 +181,18 @@ namespace VedAstro.Library
         }
 
         /// <summary>
+        /// Gets all planets that transmit an aspect to the inputted house. Was previously
+        /// documentation-only (see Library/Data/OpenAPIStaticTable.cs's metadata entry) with no
+        /// real implementation, despite being wired into the Horoscope page's house table
+        /// ("Aspects" column) - reused the existing IsHouseAspectedByPlanet building block, same
+        /// pattern as PlanetsAspectingPlanet above.
+        /// </summary>
+        public static List<PlanetName> PlanetsAspectingHouse(HouseName inputHouse, Time time)
+        {
+            return PlanetName.All9Planets.Where(planet => IsHouseAspectedByPlanet(inputHouse, planet, time)).ToList();
+        }
+
+        /// <summary>
         /// Checks if a planet is in the same house (not necessarily conjunct) as the lord of a certain house.
         /// Example: Is Sun joined with lord of 9th.
         /// </summary>

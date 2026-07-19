@@ -1,20 +1,11 @@
 import { useMemo } from 'react';
-import {
-  Image,
-  ImageBackground,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  useWindowDimensions,
-} from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useTheme } from '@/hooks/use-theme';
 import { PageRoute } from '@/constants/routes';
-import { GitHubRepo } from '@/constants/urls';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 
 /**
@@ -24,7 +15,8 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
  */
 type QuickLink = {
   route: string;
-  image: ReturnType<typeof require>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  image: any; // RN image require() result (a numeric asset id at runtime)
   title: string;
   description: string;
 };
@@ -110,29 +102,12 @@ export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const quickLinks = useMemo(() => shuffle(QUICK_LINKS), []);
 
-  const columns = width >= 900 ? 4 : width >= 650 ? 3 : 2;
+  const columns = width >= 900 ? 3 : width >= 650 ? 2 : 1;
   const cardWidthPercent = 100 / columns;
 
   return (
     <ScrollView style={{ backgroundColor: theme.background }} contentContainerStyle={styles.scrollContent}>
       <ThemedView style={styles.page}>
-        <ImageBackground
-          source={require('@/assets/images/zodiac-wheel-faded-2.png')}
-          style={[styles.hero, { backgroundColor: theme.backgroundElement }]}
-          imageStyle={styles.heroImage}>
-          <ThemedText type="title" style={styles.heroTitle}>
-            VedAstro
-          </ThemedText>
-          <ThemedText style={styles.heroLead}>
-            A non-profit, open source project to make Vedic Astrology easily available to all.
-          </ThemedText>
-          <ThemedView style={styles.heroButtonRow}>
-            <HeroButton label="Quick Guide" onPress={() => router.push(`/${PageRoute.QuickGuide}` as never)} />
-            <HeroButton label="Source Code" onPress={() => openExternal(GitHubRepo)} />
-            <HeroButton label="Donate" onPress={() => router.push(`/${PageRoute.Donate}` as never)} />
-          </ThemedView>
-        </ImageBackground>
-
         <ThemedView style={styles.quickLinksHeader}>
           <ThemedText type="subtitle">Quick Links</ThemedText>
           <Link href={`/${PageRoute.CalculatorList}` as never} asChild>
@@ -151,8 +126,10 @@ export default function HomeScreen() {
               <ThemedView style={[styles.card, { borderColor: theme.backgroundSelected }]}>
                 <Image source={link.image} style={styles.cardImage} resizeMode="cover" />
                 <ThemedView style={styles.cardBody}>
-                  <ThemedText type="smallBold">{link.title}</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
+                  <ThemedText type="smallBold" numberOfLines={1}>
+                    {link.title}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>
                     {link.description}
                   </ThemedText>
                 </ThemedView>
@@ -165,23 +142,6 @@ export default function HomeScreen() {
   );
 }
 
-function HeroButton({ label, onPress }: { label: string; onPress: () => void }) {
-  const theme = useTheme();
-  return (
-    <Pressable onPress={onPress} style={[styles.heroButton, { backgroundColor: theme.backgroundSelected }]}>
-      <ThemedText type="smallBold">{label}</ThemedText>
-    </Pressable>
-  );
-}
-
-function openExternal(url: string) {
-  if (Platform.OS === 'web') {
-    window.open(url, '_blank');
-  } else {
-    import('expo-web-browser').then(({ openBrowserAsync }) => openBrowserAsync(url));
-  }
-}
-
 const styles = StyleSheet.create({
   scrollContent: {
     alignItems: 'center',
@@ -192,32 +152,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingTop: Spacing.four,
     paddingBottom: Spacing.six,
-  },
-  hero: {
-    borderRadius: 16,
-    padding: Spacing.four,
-    marginBottom: Spacing.five,
-    overflow: 'hidden',
-  },
-  heroImage: {
-    opacity: 0.15,
-    resizeMode: 'contain',
-  },
-  heroTitle: {
-    marginBottom: Spacing.two,
-  },
-  heroLead: {
-    marginBottom: Spacing.four,
-  },
-  heroButtonRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  heroButton: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: 8,
   },
   quickLinksHeader: {
     flexDirection: 'row',
@@ -233,16 +167,23 @@ const styles = StyleSheet.create({
     padding: Spacing.two,
   },
   card: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderRadius: 12,
     overflow: 'hidden',
   },
   cardImage: {
-    width: '100%',
-    aspectRatio: 16 / 9,
+    width: 56,
+    height: 56,
+    aspectRatio: 1,
+    borderRadius: 8,
+    margin: Spacing.two,
   },
   cardBody: {
-    padding: Spacing.two,
+    flex: 1,
+    paddingVertical: Spacing.two,
+    paddingRight: Spacing.two,
     gap: Spacing.half,
   },
 });

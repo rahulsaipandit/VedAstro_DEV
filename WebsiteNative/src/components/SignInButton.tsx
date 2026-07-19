@@ -1,4 +1,4 @@
-import { Alert, Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
@@ -9,6 +9,7 @@ import { useGoogleSignIn } from '@/lib/auth/useGoogleSignIn';
 import { useFacebookSignIn } from '@/lib/auth/useFacebookSignIn';
 import { signInFirebase, type SignInResult } from '@/lib/auth/signIn';
 import { firebaseSignInWithFacebookAccessToken, firebaseSignInWithGoogleIdToken } from '@/lib/firebase/firebaseSignIn';
+import { showErrorToast, showSuccessToast } from '@/lib/toast';
 
 /**
  * Port of ViewComponents/Components/SignInButton.razor. The old Google/Facebook JS SDK
@@ -29,7 +30,7 @@ export function SignInButton({ onSignInSuccess }: { onSignInSuccess?: () => void
       const firebaseIdToken = await firebaseSignInWithGoogleIdToken(googleIdToken);
       await afterAuthResult('Google', await signInFirebase(apiUrlDirect, firebaseIdToken));
     } catch (e) {
-      Alert.alert('Login failed', e instanceof Error ? e.message : 'Google sign-in failed');
+      showErrorToast(e instanceof Error ? e.message : 'Google sign-in failed');
     }
   }
 
@@ -38,7 +39,7 @@ export function SignInButton({ onSignInSuccess }: { onSignInSuccess?: () => void
       const firebaseIdToken = await firebaseSignInWithFacebookAccessToken(facebookAccessToken);
       await afterAuthResult('Facebook', await signInFirebase(apiUrlDirect, firebaseIdToken));
     } catch (e) {
-      Alert.alert('Login failed', e instanceof Error ? e.message : 'Facebook sign-in failed');
+      showErrorToast(e instanceof Error ? e.message : 'Facebook sign-in failed');
     }
   }
 
@@ -46,10 +47,10 @@ export function SignInButton({ onSignInSuccess }: { onSignInSuccess?: () => void
     if (result.pass) {
       setPreviousLoginMethod(provider);
       setCurrentUser({ id: result.id, name: result.name, isGuest: false });
-      Alert.alert('Login success', `Signed in as ${result.name}`);
+      showSuccessToast(`Signed in as ${result.name}`);
       onSignInSuccess?.();
     } else {
-      Alert.alert('Login failed', result.message);
+      showErrorToast(result.message);
     }
   }
 

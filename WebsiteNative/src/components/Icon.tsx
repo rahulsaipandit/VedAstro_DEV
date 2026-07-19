@@ -1,4 +1,27 @@
-import { Heart, HeartCrack, HeartHandshake, HeartOff, Plus, Search, User, type LucideIcon } from 'lucide-react-native';
+import {
+  ArrowLeft,
+  Calendar,
+  ChevronDown,
+  Clock,
+  Construction,
+  Globe,
+  Heart,
+  HeartCrack,
+  HeartHandshake,
+  HeartOff,
+  House,
+  LocateFixed,
+  Menu,
+  Moon,
+  Plus,
+  Search,
+  Settings2,
+  Sparkles,
+  Sun,
+  User,
+  X,
+  type LucideIcon,
+} from 'lucide-react-native';
 
 import { useTheme } from '@/hooks/use-theme';
 
@@ -18,6 +41,20 @@ const registry = {
   plus: Plus,
   search: Search,
   user: User,
+  construction: Construction,
+  menu: Menu,
+  moon: Moon,
+  sun: Sun,
+  'chevron-down': ChevronDown,
+  globe: Globe,
+  'detect-location': LocateFixed,
+  'arrow-left': ArrowLeft,
+  close: X,
+  settings: Settings2,
+  sparkles: Sparkles,
+  house: House,
+  clock: Clock,
+  calendar: Calendar,
 } as const satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof registry;

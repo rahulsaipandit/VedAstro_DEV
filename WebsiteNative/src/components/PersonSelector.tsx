@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Alert, FlatList, Modal, Pressable, StyleSheet, TextInput } from 'react-native';
+import { FlatList, Modal, Pressable, StyleSheet, TextInput } from 'react-native';
+import { useRouter } from 'expo-router';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
@@ -8,12 +9,13 @@ import { useTheme } from '@/hooks/use-theme';
 import { Spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
 import { getPersonList, getPublicPersonList, type Person } from '@/lib/api/person';
+import { PageRoute } from '@/constants/routes';
 
 /**
  * Simplified port of ViewComponents/Components/PersonSelectorBox.razor. Real data (own +
- * public person list, search, selection) is wired up; "Add New Person" is a stub — the
- * AddPerson/Person.Editor flow hasn't been ported to WebsiteNative yet, so it just tells
- * the user that for now instead of silently doing nothing.
+ * public person list, search, selection) is wired up; "Add New Person" now navigates to the
+ * real Account/Person/Add screen (see migration.md — this was a "coming soon" stub before
+ * Person management was ported).
  */
 export function PersonSelector({
   label,
@@ -25,6 +27,7 @@ export function PersonSelector({
   onSelectPerson: (person: Person) => void;
 }) {
   const theme = useTheme();
+  const router = useRouter();
   const apiUrlDirect = useAppStore((s) => s.apiUrlDirect());
   const effectiveOwnerId = useAppStore((s) => s.effectiveOwnerId());
   const visitorId = useAppStore((s) => s.visitorId);
@@ -107,9 +110,10 @@ export function PersonSelector({
             )}
 
             <Pressable
-              onPress={() =>
-                Alert.alert('Add New Person', 'Adding people from the app is coming soon — not ported yet.')
-              }
+              onPress={() => {
+                setModalVisible(false);
+                router.push(`/${PageRoute.AddPerson}` as never);
+              }}
               style={[styles.addButton, { backgroundColor: theme.backgroundSelected }]}>
               <Icon name="plus" size={16} />
               <ThemedText type="smallBold">Add New Person</ThemedText>

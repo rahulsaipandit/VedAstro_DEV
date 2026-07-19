@@ -55,6 +55,38 @@ namespace VedAstro.Library
         }
 
         /// <summary>
+        /// Given coordinates, converts to its geo location equivalent (reverse geocoding) - e.g. for
+        /// "use my current location" flows where the browser only supplies lat/long.
+        /// NOTE: uses the free Nominatim (OpenStreetMap) API - no key required, suitable for local dev.
+        /// EXP: ../Calculate/CoordinatesToGeoLocation/Latitude/47.6062/Longitude/-122.3321
+        /// </summary>
+        public static async Task<GeoLocation> CoordinatesToGeoLocation(double latitude, double longitude)
+        {
+            try
+            {
+                using var client = new System.Net.Http.HttpClient();
+                client.DefaultRequestHeaders.Add("User-Agent", "VedAstro/1.0");
+                client.Timeout = TimeSpan.FromSeconds(10);
+
+                var lat = latitude.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var lon = longitude.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var url = $"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json";
+                var raw = await client.GetStringAsync(url);
+                var result = Newtonsoft.Json.Linq.JObject.Parse(raw);
+
+                var name = (string)result["display_name"];
+                if (string.IsNullOrWhiteSpace(name)) { return GeoLocation.Empty; }
+
+                return new GeoLocation(name, longitude, latitude);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CoordinatesToGeoLocation] failed for '{latitude},{longitude}': {ex.Message}");
+                return GeoLocation.Empty;
+            }
+        }
+
+        /// <summary>
         /// Gets the timezone offset for a given location & time, accounting for historical/DST changes
         /// where possible. NOTE: falls back to a longitude-based (non-DST-aware) offset if the
         /// free timeapi.io lookup fails or is unreachable (e.g. fully offline local dev).

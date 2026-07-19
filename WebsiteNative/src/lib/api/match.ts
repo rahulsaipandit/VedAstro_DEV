@@ -86,6 +86,36 @@ export async function saveMatchReport(
   }
 }
 
+/** Mirrors Library/Data/PersonKutaScore.cs's ToJsonList()/FromJsonList(). */
+export type PersonKutaScore = {
+  personId: string;
+  personName: string;
+  gender: 'Male' | 'Female';
+  age: number;
+  kutaScore: number;
+};
+
+function personKutaScoreFromJson(json: any): PersonKutaScore {
+  return {
+    personId: json.PersonId,
+    personName: json.PersonName,
+    gender: json.Gender,
+    age: json.Age,
+    kutaScore: json.KutaScore,
+  };
+}
+
+/**
+ * Global match search across the whole person database (GET /api/FindMatch/PersonId/{personId}),
+ * backing Match/Finder.tsx — distinct from getMatchReport, which is a direct two-person report.
+ */
+export async function findMatchesForPerson(apiUrlDirect: string, personId: string): Promise<PersonKutaScore[]> {
+  const response = await fetch(`${apiUrlDirect}/FindMatch/PersonId/${personId}`);
+  const json = await response.json();
+  if (json.Status !== 'Pass') return [];
+  return (json.Payload as any[]).map(personKutaScoreFromJson);
+}
+
 /** Lists all match reports saved by an owner (GET /api/GetMatchReportList/OwnerId/{ownerId}). */
 export async function getMatchReportList(apiUrlDirect: string, ownerId: string): Promise<MatchReport[]> {
   const response = await fetch(`${apiUrlDirect}/GetMatchReportList/OwnerId/${ownerId}`);

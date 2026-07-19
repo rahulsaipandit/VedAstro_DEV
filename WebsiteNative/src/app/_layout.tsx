@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, View } from 'react-native';
 import { ToastProvider } from 'react-native-toast-notifications';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import { DebugModeToggle } from '@/components/DebugModeToggle';
+import { AlertHost } from '@/components/AlertHost';
+import { AppHeader } from '@/components/AppHeader';
+import { AppFooter } from '@/components/AppFooter';
 import { useAppStore } from '@/store/useAppStore';
 
 SplashScreen.preventAutoHideAsync();
@@ -26,8 +28,14 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <ToastProvider placement="top" duration={3000}>
         <AnimatedSplashOverlay />
-        <Stack screenOptions={{ headerShown: false }} />
-        <DebugModeToggle />
+        <View style={{ flex: 1 }}>
+          <AppHeader />
+          <View style={{ flex: 1 }}>
+            <Stack screenOptions={{ headerShown: false }} />
+          </View>
+          <AppFooter />
+        </View>
+        <AlertHost />
       </ToastProvider>
     </ThemeProvider>
   );

@@ -60,7 +60,7 @@ type AppState = {
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
-      debugMode: false,
+      debugMode: true,
       setDebugMode: (value) => set({ debugMode: value }),
 
       currentUser: GUEST_USER,

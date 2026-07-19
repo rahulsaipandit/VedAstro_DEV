@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { InfoBox } from '@/components/InfoBox';
 import { PersonSelector } from '@/components/PersonSelector';
+import { showErrorToast } from '@/lib/toast';
 import { PageRoute } from '@/constants/routes';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import type { Person } from '@/lib/api/person';
@@ -21,7 +22,7 @@ export default function HoroscopeScreen() {
 
   function handleCalculate() {
     if (!person) {
-      Alert.alert('Select a person', 'Pick a person to generate their horoscope.');
+      showErrorToast('Pick a person to generate their horoscope.');
       return;
     }
     router.push(`/${PageRoute.Horoscope}/${person.id}` as never);

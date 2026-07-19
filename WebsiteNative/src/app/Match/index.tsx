@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Pressable, ScrollView, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
@@ -9,6 +9,7 @@ import { PersonSelector } from '@/components/PersonSelector';
 import { PageRoute } from '@/constants/routes';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { confirm } from '@/lib/confirm';
+import { showErrorToast } from '@/lib/toast';
 import type { Person } from '@/lib/api/person';
 
 /** Ported from Website/Pages/Calculator/Match/Index.razor. */
@@ -19,11 +20,11 @@ export default function MatchScreen() {
 
   async function handleCalculate() {
     if (!male) {
-      Alert.alert('Select 1st person', "How to check match if you don't select a person?");
+      showErrorToast("How to check match if you don't select a person?");
       return;
     }
     if (!female) {
-      Alert.alert('Select 2nd person', 'We need two people minimum to tango.');
+      showErrorToast('We need two people minimum to tango.');
       return;
     }
     if (male.id === female.id) {
