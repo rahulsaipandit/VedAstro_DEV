@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
+import { Calendar, type DateData } from 'react-native-calendars';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 import { Icon } from './Icon';
-import { OptionPickerModal } from './OptionPickerModal';
+import { Dropdown } from './Dropdown';
 import { GeoLocationInput } from './GeoLocationInput';
 import { useTheme } from '@/hooks/use-theme';
 import { Spacing } from '@/constants/theme';
@@ -19,18 +20,21 @@ export type BirthTimeInputValue = {
   location: GeoLocation;
 };
 
+const AccentColor = '#2F6FED';
 const pad2 = (n: number) => String(n).padStart(2, '0');
-const HOUR_24_OPTIONS = Array.from({ length: 24 }, (_, i) => pad2(i)); // 00..23
-const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => pad2(i)); // 00..59
-const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => pad2(i + 1)); // 01..12
 const CURRENT_YEAR = new Date().getFullYear();
-const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 1900 + 2 }, (_, i) => String(CURRENT_YEAR + 1 - i));
+const MIN_YEAR = 1900;
+const MAX_YEAR = CURRENT_YEAR + 1;
 
-function daysInMonth(mm: string, yyyy: string): number {
-  const m = Number(mm) || 1;
-  const y = Number(yyyy) || CURRENT_YEAR;
-  return new Date(y, m, 0).getDate();
-}
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+const MONTH_OPTIONS = MONTH_NAMES.map((name, i) => ({ label: name, value: pad2(i + 1) }));
+const YEAR_OPTIONS = Array.from({ length: MAX_YEAR - MIN_YEAR + 1 }, (_, i) => {
+  const y = MAX_YEAR - i;
+  return { label: String(y), value: String(y) };
+});
 
 function clampToRange(raw: string, min: number, max: number, digits: number): string {
   const digitsOnly = raw.replace(/[^0-9]/g, '');
@@ -42,11 +46,12 @@ function clampToRange(raw: string, min: number, max: number, digits: number): st
 /**
  * Matches the "Add New Person" mock: a single "Hour" field and a single "Date of birth" field,
  * each a compact tappable box (like the mock's native `<input type="time">`/`<input
- * type="date">`, complete with a leading clock/calendar icon) that opens a sheet with the actual
- * pickers — no native date/time picker library is installed for RN, so tapping in opens a plain
- * 24-hour Hour/Minute (or Day/Month/Year) selector that supports both typing a value directly and
- * picking from a list, with range validation. 24-hour, matching the mock's `type="time"` value
- * ("08:30", no AM/PM) rather than a 12-hour + meridian split.
+ * type="date">`, complete with a leading clock/calendar icon). "Hour" opens a sheet with typed
+ * Hour/Minute boxes (no native time picker library is installed for RN). "Date of birth" opens a
+ * react-native-calendars month view — works identically on web and native, unlike a native
+ * platform date picker — with Month/Year quick-jump dropdowns above it so picking a birth date
+ * decades back doesn't mean arrow-clicking one month at a time. 24-hour, matching the mock's
+ * `type="time"` value ("08:30", no AM/PM) rather than a 12-hour + meridian split.
  */
 export function BirthTimeInput({
   apiUrlDirect,
@@ -60,28 +65,45 @@ export function BirthTimeInput({
   const theme = useTheme();
   const [timeSheetOpen, setTimeSheetOpen] = useState(false);
   const [dateSheetOpen, setDateSheetOpen] = useState(false);
+  const [viewYear, setViewYear] = useState(String(CURRENT_YEAR - 30));
+  const [viewMonth, setViewMonth] = useState('01');
+  const [calendarSeed, setCalendarSeed] = useState(0);
 
   function set<K extends keyof BirthTimeInputValue>(key: K, v: BirthTimeInputValue[K]) {
     onChange({ ...value, [key]: v });
   }
 
-  function setMonth(v: string) {
-    // clamp day to stay valid when switching to a shorter month (e.g. 31 -> Feb)
-    const maxDay = daysInMonth(v, value.yyyy);
-    const clampedDay = value.dd !== '' && Number(value.dd) > maxDay ? pad2(maxDay) : value.dd;
-    onChange({ ...value, mm: v, dd: clampedDay });
+  function openDateSheet() {
+    setViewYear(value.yyyy || String(CURRENT_YEAR - 30));
+    setViewMonth(value.mm || '01');
+    setCalendarSeed((s) => s + 1);
+    setDateSheetOpen(true);
   }
 
-  function setYear(v: string) {
-    const maxDay = daysInMonth(value.mm, v);
-    const clampedDay = value.dd !== '' && Number(value.dd) > maxDay ? pad2(maxDay) : value.dd;
-    onChange({ ...value, yyyy: v, dd: clampedDay });
+  // Jumping via the Month/Year dropdowns needs the underlying Calendar to remount with a new
+  // `current` (it only reads that prop on mount) — bump calendarSeed to force it. Swiping the
+  // Calendar's own arrows (onMonthChange below) must NOT do this, or every swipe would remount it.
+  function jumpToMonth(mm: string) {
+    setViewMonth(mm);
+    setCalendarSeed((s) => s + 1);
   }
 
-  const dayOptions = Array.from({ length: daysInMonth(value.mm, value.yyyy) }, (_, i) => pad2(i + 1));
+  function jumpToYear(yyyy: string) {
+    setViewYear(yyyy);
+    setCalendarSeed((s) => s + 1);
+  }
+
+  function handleDayPress(day: DateData) {
+    onChange({ ...value, dd: pad2(day.day), mm: pad2(day.month), yyyy: String(day.year) });
+    setDateSheetOpen(false);
+  }
 
   const timeDisplay = value.hh && value.min ? `${value.hh}:${value.min}` : '';
   const dateDisplay = value.dd && value.mm && value.yyyy ? `${value.dd}/${value.mm}/${value.yyyy}` : '';
+  const markedDates =
+    value.dd && value.mm && value.yyyy
+      ? { [`${value.yyyy}-${value.mm}-${value.dd}`]: { selected: true, selectedColor: AccentColor, selectedTextColor: '#ffffff' } }
+      : {};
 
   return (
     <ThemedView style={styles.container}>
@@ -104,7 +126,7 @@ export function BirthTimeInput({
         <ThemedView style={styles.fieldCol}>
           <ThemedText style={styles.microLabel}>Date of birth</ThemedText>
           <Pressable
-            onPress={() => setDateSheetOpen(true)}
+            onPress={openDateSheet}
             style={[styles.compactField, { borderColor: theme.backgroundSelected }]}>
             <ThemedText themeColor={dateDisplay ? 'text' : 'textSecondary'} style={styles.compactFieldText}>
               {dateDisplay || 'DD/MM/YYYY'}
@@ -124,7 +146,6 @@ export function BirthTimeInput({
         <SelectField
           label="Hour"
           value={value.hh}
-          options={HOUR_24_OPTIONS}
           placeholder="HH"
           width={64}
           maxLength={2}
@@ -135,7 +156,6 @@ export function BirthTimeInput({
         <SelectField
           label="Minute"
           value={value.min}
-          options={MINUTE_OPTIONS}
           placeholder="MM"
           width={64}
           maxLength={2}
@@ -144,38 +164,45 @@ export function BirthTimeInput({
         />
       </PickerSheet>
 
-      <PickerSheet visible={dateSheetOpen} title="Date of Birth" onClose={() => setDateSheetOpen(false)}>
-        <SelectField
-          label="Day"
-          value={value.dd}
-          options={dayOptions}
-          placeholder="DD"
-          width={56}
-          maxLength={2}
-          clamp={(raw) => clampToRange(raw, 1, daysInMonth(value.mm, value.yyyy), 2)}
-          onChange={(v) => set('dd', v)}
-        />
-        <ThemedText>/</ThemedText>
-        <SelectField
-          label="Month"
-          value={value.mm}
-          options={MONTH_OPTIONS}
-          placeholder="MM"
-          width={56}
-          maxLength={2}
-          clamp={(raw) => clampToRange(raw, 1, 12, 2)}
-          onChange={setMonth}
-        />
-        <ThemedText>/</ThemedText>
-        <SelectField
-          label="Year"
-          value={value.yyyy}
-          options={YEAR_OPTIONS}
-          placeholder="YYYY"
-          width={76}
-          maxLength={4}
-          clamp={(raw) => clampToRange(raw, 1900, CURRENT_YEAR + 1, 4)}
-          onChange={setYear}
+      <PickerSheet
+        visible={dateSheetOpen}
+        title="Date of Birth"
+        onClose={() => setDateSheetOpen(false)}
+        contentStyle={calendarStyles.sheetContent}
+        scrollable>
+        <ThemedView style={calendarStyles.navRow}>
+          <ThemedView style={calendarStyles.navCol}>
+            <Dropdown value={viewMonth} options={MONTH_OPTIONS} onChange={jumpToMonth} placeholder="Month" />
+          </ThemedView>
+          <ThemedView style={calendarStyles.navCol}>
+            <Dropdown value={viewYear} options={YEAR_OPTIONS} onChange={jumpToYear} placeholder="Year" />
+          </ThemedView>
+        </ThemedView>
+        <Calendar
+          key={calendarSeed}
+          current={`${viewYear}-${viewMonth}-01`}
+          onMonthChange={(m) => {
+            setViewYear(String(m.year));
+            setViewMonth(pad2(m.month));
+          }}
+          onDayPress={handleDayPress}
+          markedDates={markedDates}
+          minDate={`${MIN_YEAR}-01-01`}
+          maxDate={`${MAX_YEAR}-12-31`}
+          enableSwipeMonths
+          theme={{
+            backgroundColor: theme.background,
+            calendarBackground: theme.background,
+            textSectionTitleColor: theme.textSecondary,
+            selectedDayBackgroundColor: AccentColor,
+            selectedDayTextColor: '#ffffff',
+            todayTextColor: AccentColor,
+            dayTextColor: theme.text,
+            textDisabledColor: theme.backgroundSelected,
+            arrowColor: AccentColor,
+            monthTextColor: theme.text,
+            indicatorColor: AccentColor,
+          }}
         />
       </PickerSheet>
     </ThemedView>
@@ -187,13 +214,26 @@ function PickerSheet({
   title,
   onClose,
   children,
+  contentStyle,
+  scrollable = false,
 }: {
   visible: boolean;
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  contentStyle?: StyleProp<ViewStyle>;
+  scrollable?: boolean;
 }) {
   const theme = useTheme();
+  const { height: windowHeight } = useWindowDimensions();
+  const content = scrollable ? (
+    <ScrollView style={{ maxHeight: windowHeight * 0.65 }} contentContainerStyle={[sheetStyles.row, contentStyle]}>
+      {children}
+    </ScrollView>
+  ) : (
+    <View style={[sheetStyles.row, contentStyle]}>{children}</View>
+  );
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={sheetStyles.backdrop} onPress={onClose} />
@@ -205,7 +245,7 @@ function PickerSheet({
             <Icon name="close" size={16} color={theme.textSecondary} />
           </Pressable>
         </View>
-        <View style={sheetStyles.row}>{children}</View>
+        {content}
       </ThemedView>
     </Modal>
   );
@@ -214,7 +254,6 @@ function PickerSheet({
 function SelectField({
   label,
   value,
-  options,
   placeholder,
   width,
   maxLength,
@@ -224,7 +263,6 @@ function SelectField({
 }: {
   label: string;
   value: string;
-  options: string[];
   placeholder: string;
   width: number;
   maxLength: number;
@@ -233,7 +271,6 @@ function SelectField({
   allowTyping?: boolean;
 }) {
   const theme = useTheme();
-  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
 
   useEffect(() => {
@@ -264,19 +301,7 @@ function SelectField({
           maxLength={maxLength}
           style={[styles.input, { color: theme.text }]}
         />
-        <Pressable onPress={() => setOpen(true)} hitSlop={8} style={styles.chevron}>
-          <Icon name="chevron-down" size={14} color={theme.textSecondary} />
-        </Pressable>
       </ThemedView>
-
-      <OptionPickerModal
-        visible={open}
-        title={label}
-        options={options.map((opt) => ({ label: opt, value: opt }))}
-        selectedValue={value}
-        onSelect={commit}
-        onClose={() => setOpen(false)}
-      />
     </ThemedView>
   );
 }
@@ -331,15 +356,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: 44,
+    overflow: 'hidden',
   },
   input: {
     flex: 1,
+    minWidth: 0,
+    width: '100%',
     paddingVertical: Spacing.two,
-    paddingLeft: Spacing.one,
+    paddingHorizontal: Spacing.one,
     textAlign: 'center',
   },
-  chevron: {
-    paddingHorizontal: Spacing.one,
+});
+
+const calendarStyles = StyleSheet.create({
+  sheetContent: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
+    gap: Spacing.three,
+  },
+  navRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  navCol: {
+    flex: 1,
   },
 });
 

@@ -369,7 +369,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
   },
   saveButton: {
-    backgroundColor: '#1F9D55',
+    backgroundColor: AccentColor,
     paddingVertical: Spacing.three,
     borderRadius: 12,
     alignItems: 'center',

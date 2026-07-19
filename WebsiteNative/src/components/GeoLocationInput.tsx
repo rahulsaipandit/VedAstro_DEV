@@ -130,7 +130,15 @@ export function GeoLocationInput({
           <ThemedText type="small" themeColor="textSecondary">
             Country:
           </ThemedText>
-          <Dropdown value={country} options={COUNTRY_OPTIONS} onChange={setCountry} placeholder="Any" label="Country" searchable />
+          <Dropdown
+            value={country}
+            options={COUNTRY_OPTIONS}
+            onChange={setCountry}
+            placeholder="Any"
+            label="Country"
+            searchable
+            bordered={false}
+          />
         </ThemedView>
 
         <Pressable onPress={() => setShowCoords((s) => !s)} hitSlop={8} style={styles.coordsToggle}>

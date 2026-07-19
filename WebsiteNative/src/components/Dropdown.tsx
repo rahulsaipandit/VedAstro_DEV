@@ -22,6 +22,7 @@ export function Dropdown({
   placeholder = 'Select…',
   label,
   searchable = false,
+  bordered = true,
 }: {
   value: string;
   options?: DropdownOption[];
@@ -30,6 +31,7 @@ export function Dropdown({
   placeholder?: string;
   label?: string;
   searchable?: boolean;
+  bordered?: boolean;
 }) {
   const theme = useTheme();
   const [open, setOpen] = useState(false);
@@ -39,7 +41,12 @@ export function Dropdown({
 
   return (
     <View style={styles.wrapper}>
-      <Pressable onPress={() => setOpen(true)} style={[styles.field, { borderColor: theme.backgroundSelected }]}>
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={[
+          styles.field,
+          bordered ? [styles.fieldBordered, { borderColor: theme.backgroundSelected }] : styles.fieldBorderless,
+        ]}>
         <ThemedText themeColor={selected ? 'text' : 'textSecondary'} style={styles.fieldText}>
           {selected?.label ?? placeholder}
         </ThemedText>
@@ -69,11 +76,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  fieldBordered: {
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.three,
     minHeight: 44,
+  },
+  fieldBorderless: {
+    paddingVertical: Spacing.one,
   },
   fieldText: {
     flex: 1,
