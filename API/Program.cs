@@ -92,6 +92,9 @@ namespace API
             builder.Services.AddSingleton<IChatMessageRepository, ChatMessageRepository>();
             builder.Services.AddSingleton<IPresetQuestionEmbeddingsRepository, PresetQuestionEmbeddingsRepository>();
 
+            // Saved match reports (MatchAPI.cs's SaveMatchReport/GetMatchReportList)
+            builder.Services.AddSingleton<ISavedMatchReportRepository, SavedMatchReportRepository>();
+
             // same lazy-resolution reasoning as the connection string above - resolved from DI
             // when the singleton is first requested (after the host is fully built), not captured
             // from builder.Configuration this early, so test hosts can override ChartCacheDirectory.
@@ -176,6 +179,7 @@ namespace API
             Repositories.ChartCache = services.GetRequiredService<IChartImageCache>();
             Repositories.ChatMessage = services.GetRequiredService<IChatMessageRepository>();
             Repositories.PresetQuestionEmbeddings = services.GetRequiredService<IPresetQuestionEmbeddingsRepository>();
+            Repositories.SavedMatchReport = services.GetRequiredService<ISavedMatchReportRepository>();
 
             // ---- Route registration (one Map*Endpoints per old API/FrontDesk/*.cs file) ----
             app.MapGeneralEndpoints();

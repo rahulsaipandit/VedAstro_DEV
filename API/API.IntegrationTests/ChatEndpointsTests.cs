@@ -22,6 +22,16 @@ namespace API.IntegrationTests
         public ChatEndpointsTests(ApiWebApplicationFactory factory)
         {
             _client = factory.CreateClient();
+
+            // HttpClient's default 100s timeout is fine for the two graceful-reply tests below
+            // (no real LLM call), but HoroscopeChat_ViaCalculateDispatcher_ReturnsAiReply drives
+            // an actual local model generation, which can legitimately take longer than 100s on
+            // consumer hardware - a real generation was observed taking ~5 minutes even after
+            // capping MaxTokens for local routing (see ProcessPrediction's local-LLM branch in
+            // ChatAPI.cs, which now times out its own call at 10 minutes) - kept a couple minutes
+            // above that server-side timeout so this client doesn't race it. Only paid when these
+            // tests actually run (i.e. LM Studio is reachable); otherwise they self-skip.
+            _client.Timeout = TimeSpan.FromMinutes(12);
         }
 
         private const string BirthTimeUrlSegment = "Location/1.3521,103.8198/Time/12:00/15/06/1990/+08:00";
@@ -29,6 +39,9 @@ namespace API.IntegrationTests
         /// <summary>
         /// Short-timeout, never-throws reachability check for the configured (or default)
         /// local LLM server - must not throw so [SkippableFact] tests can call it unconditionally.
+        /// 5s (not 1s) because .NET's HttpClient does proxy auto-detection on a process's first
+        /// request, which was observed costing more than 1s here even though the server itself
+        /// responds instantly (confirmed via a direct curl to the same URL).
         /// </summary>
         private static async Task<bool> IsLmStudioReachable()
         {
@@ -37,8 +50,8 @@ namespace API.IntegrationTests
 
             try
             {
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 using var response = await client.GetAsync(baseUrl, cts.Token);
                 return true; // any response at all (even 404/error) means something is listening
             }

@@ -3,6 +3,7 @@ import { Alert, FlatList, Modal, Pressable, StyleSheet, TextInput } from 'react-
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
+import { Icon } from './Icon';
 import { useTheme } from '@/hooks/use-theme';
 import { Spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
@@ -69,13 +70,16 @@ export function PersonSelector({
       <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={() => setModalVisible(false)}>
         <Pressable style={styles.backdrop} onPress={() => setModalVisible(false)}>
           <Pressable style={[styles.sheet, { backgroundColor: theme.background }]} onPress={(e) => e.stopPropagation()}>
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Search..."
-              placeholderTextColor={theme.textSecondary}
-              style={[styles.searchInput, { color: theme.text, borderColor: theme.backgroundSelected }]}
-            />
+            <ThemedView style={[styles.searchRow, { borderColor: theme.backgroundSelected }]}>
+              <Icon name="search" size={16} color={theme.textSecondary} />
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search..."
+                placeholderTextColor={theme.textSecondary}
+                style={[styles.searchInput, { color: theme.text }]}
+              />
+            </ThemedView>
 
             {loading ? (
               <ThemedText style={styles.loadingText}>Loading...</ThemedText>
@@ -107,7 +111,8 @@ export function PersonSelector({
                 Alert.alert('Add New Person', 'Adding people from the app is coming soon — not ported yet.')
               }
               style={[styles.addButton, { backgroundColor: theme.backgroundSelected }]}>
-              <ThemedText type="smallBold">+ Add New Person</ThemedText>
+              <Icon name="plus" size={16} />
+              <ThemedText type="smallBold">Add New Person</ThemedText>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -139,10 +144,16 @@ const styles = StyleSheet.create({
     padding: Spacing.four,
     gap: Spacing.three,
   },
-  searchInput: {
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: Spacing.three,
+  },
+  searchInput: {
+    flex: 1,
     paddingVertical: Spacing.two,
   },
   loadingText: {
@@ -156,7 +167,10 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   addButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
     borderRadius: 8,
     paddingVertical: Spacing.three,
   },

@@ -1734,11 +1734,26 @@ namespace VedAstro.Library
                 settings.ServerUrl = localLlmBase.TrimEnd('/') + "/chat/completions";
                 settings.ApiKey = Environment.GetEnvironmentVariable("LOCAL_LLM_API_KEY") ?? "local-llm";
                 localModel = Environment.GetEnvironmentVariable("LOCAL_LLM_MODEL");
+
+                // Verified against a real LM Studio instance (RTX 5070, GPU acceleration confirmed
+                // active via nvidia-smi during generation - this is not a CPU-fallback issue): a
+                // MaxTokens budget as large as 8196 (PickOutMostRelevantPredictions_MistralSmall's
+                // relevance-filtering step) reliably took 5+ minutes to generate locally regardless
+                // of model size (reproduced with both a 26B and a 9B model) - it's the requested
+                // output length, not the model, that's the bottleneck at normal local-GPU decode
+                // speeds. The cloud endpoints this was tuned for have much higher throughput, so
+                // this cap only applies when actually routed to a local server - production/cloud
+                // behavior (MaxTokens as configured per call site) is unchanged.
+                if (settings.MaxTokens > 2048) { settings.MaxTokens = 2048; }
+
                 //local reasoning models are much slower than cloud endpoints and can burn most of
                 //their token budget on hidden "reasoning_content" before ever emitting a real answer -
-                //the default HttpClient.Timeout of 100s is routinely too short for this
-                localTimeout = TimeSpan.FromSeconds(300);
-                Console.WriteLine($"[ChatAPI] routing LLM call to {settings.ServerUrl}");
+                //the default HttpClient.Timeout of 100s is routinely too short for this. Raised from
+                //300s: even with the MaxTokens cap above, a large input prompt (e.g. a full
+                //horoscope prediction list, ~5,000+ tokens) still needs a slow prefill pass before
+                //generation starts at all.
+                localTimeout = TimeSpan.FromSeconds(600);
+                Console.WriteLine($"[ChatAPI] routing LLM call to {settings.ServerUrl} (local MaxTokens={settings.MaxTokens}, timeout={localTimeout})");
             }
 
             var requestBody = CreateRequestBody(settings.SysMessage, settings.MaxTokens, settings.Temperature, settings.TopP, localModel);

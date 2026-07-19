@@ -54,18 +54,30 @@ export default function MatchScreen() {
           <PersonSelector label="Female" selectedPerson={female} onSelectPerson={setFemale} />
         </ThemedView>
 
-        <Pressable onPress={handleCalculate} style={styles.calculateButton}>
-          <ThemedText type="smallBold" themeColor="background">
-            Calculate
-          </ThemedText>
-        </Pressable>
+        <ThemedView style={styles.actionRow}>
+          <Pressable onPress={handleCalculate} style={styles.calculateButton}>
+            <ThemedText type="smallBold" themeColor="background">
+              Calculate
+            </ThemedText>
+          </Pressable>
+          <Pressable onPress={() => router.push(`/${PageRoute.SavedMatchReports}` as never)}>
+            <ThemedText type="link" themeColor="textSecondary">
+              View Saved Matches
+            </ThemedText>
+          </Pressable>
+        </ThemedView>
 
         <ThemedView style={styles.infoRow}>
           <InfoBox
+            icon="search"
             title="Find Perfect Match"
             description="Your soulmate is out there. Start a search in our global database."
           />
-          <InfoBox title="Full Check" description="16 astrological factors used to make this accurate prediction." />
+          <InfoBox
+            icon="heart-plus"
+            title="Full Check"
+            description="16 astrological factors used to make this accurate prediction."
+          />
         </ThemedView>
 
         <ThemedView style={styles.articleBlock}>
@@ -115,6 +127,11 @@ const styles = StyleSheet.create({
   selectorRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: Spacing.four,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.four,
   },
   calculateButton: {

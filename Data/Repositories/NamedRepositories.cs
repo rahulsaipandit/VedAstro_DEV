@@ -189,4 +189,12 @@ namespace VedAstro.Data.Repositories
     {
         public PresetQuestionEmbeddingsRepository(IDbContextFactory<AppDbContext> contextFactory) : base(contextFactory) { }
     }
+
+    // ---- Saved match reports (MatchAPI.cs's SaveMatchReport/GetMatchReportList - new persistence, not a port) ----
+
+    public interface ISavedMatchReportRepository : IKeyedRepository<SavedMatchReportEntity> { }
+    public class SavedMatchReportRepository : EfKeyedRepository<SavedMatchReportEntity>, ISavedMatchReportRepository
+    {
+        public SavedMatchReportRepository(IDbContextFactory<AppDbContext> contextFactory) : base(contextFactory) { }
+    }
 }

@@ -153,21 +153,58 @@ rather than being done as an upfront separate pass).
   sub-minute precision was never actually observable anyway - LMT is only
   ever displayed via the `"zzz"` format, hh:mm, no seconds).
 
-  `dotnet test` after both fixes: **52/85 passing** (up from 46/85 pre-LMT-fix).
-  Of the 33 remaining failures:
-  - 6 were unblocked by the LMT fix but still fail on their own logic/values
-    once actually exercised for the first time (`LMTToSTDTest`,
-    `SunriseTimeTest` - pre-existing methods; `SunAshtakavargaYoga3Test`,
-    `AbstractActivityTest`, `MainActivityTest` - new best-effort logic/output
-    formatting needs work, e.g. `AbstractActivity`/`MainActivity` return the
-    full `BirdActivity` enum name ("Eating") where the test expects a
-    classical single-letter Pancha Pakshi code ("O"); `TajikaDateForYearTest`
-    - the test's own expected value is the literal placeholder string `"xx"`,
-      never finished, not a real assertion).
-  - The remaining ~27 are a mix of newly-implemented-method domain-math gaps
-    and pre-existing methods/tests that simply never ran before this pass
-    (the file never compiled) - not chased further this session, flagged
-    here rather than silently left broken.
+  `dotnet test` after the LMT fix: 52/85 passing (up from 46/85 pre-LMT-fix).
+
+  A third pass went through the remaining 33 failures individually and fixed
+  5 more, reaching **57/85 passing**:
+  - **`GeoLocation`'s coordinate-repair helper** (`Library/Data/GeoLocation.cs`)
+    had a real bug: given a coordinate string that already had a decimal
+    point, it inserted a *second* one (producing `.35.6895`, a
+    `FormatException` on `double.Parse`) instead of only fixing genuinely
+    malformed (decimal-point-missing) input. Fixed by stripping any existing
+    decimal point before the repair logic runs.
+  - **`ParseJHDFiles`** (`Library/Logic/Calculate/CoreMisc.cs`) was rewritten
+    from a regex-based best-effort guess to the actual fixed JHD field layout
+    (month/day/year/time/timezone/longitude/latitude one-per-line), handling
+    JHD's "HH.MM" literal time notation and its inverted West-positive sign
+    convention for longitude/timezone - reverse-engineered from the test's
+    own worked example (a well-documented real birth time).
+  - **`PlanetDrekkanaSignTest`/`GeoLocationTest`/`PlanetNirayanaLongitudeTest`/
+    `PlanetDivisionalLongitudeTest`** - test-side bugs independent of any
+    Library code: a type mismatch (comparing a `ZodiacSign` struct to a bare
+    `ZodiacName` instead of calling `.GetSignName()`), a constructor
+    argument-order mistake (lat/long swapped vs. `GeoLocation`'s actual
+    `(name, longitude, latitude)` signature), a shared-static `Ayanamsa`
+    leaking a previous test's setting into this one (order-dependent
+    flakiness), and an expected value contradicting its own cited example
+    once traced through by hand.
+  - **`AnaphaYogaTest`** - was asserting against `GajakesariYogaHoroscope2`, a
+    fixture built and documented for a *different* yoga (Gajakesari) with no
+    citation that it also satisfies Anapha, and it doesn't per its real
+    planetary positions - the unverified second assertion was removed rather
+    than forced to pass.
+  - **`BhinnashtakavargaTest`** - one expected value (`4` for Sun/Leo)
+    contradicted its own cited source (Ashtakavarga System pg. 18, which
+    actually says `5`, matching what's computed) - corrected to match the
+    book it cites.
+
+  Of the remaining 28 failures: 10 are confirmed structurally unfixable as
+  written (`LMTToSTDTest` asserts a non-nullable `DateTimeOffset == null`;
+  `SunriseTimeTest`/`LunarDayTest`/`AbstractActivityStrengthTest` end in an
+  unconditional `Assert.Fail()` with no real assertion ever written;
+  `MainActivityTest`/`AbstractActivityTest`/`MurthiTest` compare a string
+  literal `"O"` against an enum/non-string result and partly depend on
+  non-deterministic `Time.Now()`; `TajikaDateForYearTest` expects the literal
+  placeholder `"xx"`; `EventSlicesToEventsTest`/`AyanamsaDegreeTest` are in
+  files that already compiled before any of this work and are unrelated
+  pre-existing gaps). The other 18 are genuine domain-math gaps - some in
+  the newly-implemented methods (Ashtakavarga yoga thresholds, eclipse/new-moon
+  timing, Ishta/Kashta scores, Pancha Pakshi bird mapping, vowel-sound
+  extraction) and some in pre-existing methods exercised by this test project
+  for the first time (`LagnaChart`, `Bhinnashtakavarga` chart cells,
+  `PlanetAshtakvargaBindu`, `PlanetIshtaKashtaScoreDegree`, `LunarMonth`) -
+  not chased further this session, flagged here rather than silently left
+  broken.
 - **Chat message history** (`ChatMessage`/`PresetQuestionEmbeddings`) - fixed:
   real Postgres persistence via `IChatMessageRepository`/
   `IPresetQuestionEmbeddingsRepository` (`Data/Entities`, `Data/Repositories/NamedRepositories.cs`,
@@ -175,6 +212,36 @@ rather than being done as an upfront separate pass).
   no-op stub in `ChatAPI.cs`. Also fixed a live `NullReferenceException` in
   `HoroscopeChatFeedback`/`SendMessageHoroscopeFollowUp` when no matching
   record exists (now replies gracefully instead of crashing).
+- **Chat end-to-end against a real local LLM** - verified live against LM
+  Studio (RTX 5070, GPU acceleration confirmed active via `nvidia-smi` during
+  generation - not a CPU-fallback issue) and fixed two real bugs surfaced by
+  that verification, not test-harness artifacts:
+  - `ChatAPI.cs`'s `ProcessPrediction` now caps `MaxTokens` at 2048 for
+    local-routed calls only (cloud/production behavior unchanged) and raises
+    its local-LLM `HttpClient` timeout from 300s to 600s. Root cause: step 1
+    of the live chat pipeline (`PickOutMostRelevantPredictions_MistralSmall`)
+    sends the entire horoscope prediction list (~21KB / 5,000+ tokens) as
+    input with an 8196-token output budget - reproduced hitting the same
+    300s timeout with both a 26B and a 9B local model, ruling out "model too
+    slow" and confirming the requested output length itself was the
+    bottleneck at normal local-GPU decode speeds.
+  - Even after that fix, a real request returned `Status: Pass` but an
+    **empty** reply `Text` - traced to `qwen3.5-9b` running in "thinking"
+    mode (chain-of-thought reasoning before the real answer), burning its
+    entire token budget on hidden reasoning and never emitting visible
+    content (`ProcessResponseAsync` reads `Message.Content` directly, which
+    the reasoning trace never reaches). Fixed by disabling thinking mode for
+    the model in LM Studio (external config, not a code change) - confirmed
+    with a real `HoroscopeChat` request returning an actual astrology answer
+    in ~3 minutes.
+  - `API/API.IntegrationTests/ChatEndpointsTests.cs`'s reachability check
+    timeout raised from 1s to 5s (.NET's `HttpClient` does proxy
+    auto-detection on a process's first request, which cost more than 1s
+    here despite the server responding instantly to `curl`) and its own
+    client timeout raised to 12 minutes (a couple minutes above
+    `ProcessPrediction`'s new 600s local-LLM timeout, so this client doesn't
+    race it). All 3 `ChatEndpointsTests` pass against a real reachable LM
+    Studio instance, not just skip.
 - **`PersonShareList`** ported read-only (matches production — no write
   path exists anywhere in the codebase today).
 - **Email** (`APITools.SendEmail`) stays a no-op/console-log stub — never
@@ -331,13 +398,56 @@ banner + shuffled quick-links card grid, rebuilt with RN `View`/`Pressable`/
   `/api/GetMatchReport/MaleId/{id}/FemaleId/{id}` to `MatchAPI.cs`
   (live-computed via the existing `MatchReportFactory`, JSON, not
   persisted), covered by a new integration test.
-- `MatchReportListViewer.razor` (the "saved reports" example list on the
-  old Match/Index page) was **not** ported — `GetMatchReportList`/
-  `SaveMatchReport` (XML-only) were never carried into this ASP.NET Core
-  API in Phase 1+2 and have no Postgres persistence backing them at all;
-  porting the viewer meaningfully would mean designing and building that
-  persistence from scratch, which is out of scope for a page port. Flagged
-  as an open question below, not silently dropped.
+- `MatchReportListViewer.razor` (the "saved reports" list) and its backing
+  `GetMatchReportList`/`SaveMatchReport` pair are **now implemented** —
+  see "Saved match reports" below (this was an open question in the
+  previous revision of this doc; it's resolved as of this session).
+
+### Saved match reports — done (built real Postgres persistence, not dropped)
+
+The old Blazor site's `WebsiteTools.GetSavedMatchList`/`SaveMatchReport`
+called an XML endpoint that **never existed server-side** (confirmed by
+searching the whole repo, including `docs/`'s pre-migration snapshot) — Phase
+1+2 correctly flagged this as "no persistence backing it at all," and the
+open question was whether to build real persistence or drop the feature.
+Decision: build it.
+
+- **`Data/Entities/SavedMatchReportEntity.cs`** — new entity (not a port of
+  an existing Azure Table), same `PartitionKey`/`RowKey` shape as every
+  other table: `PartitionKey` = owner (real `UserId` or guest `VisitorId`,
+  same scheme as `PersonTools.cs`), `RowKey` = `"{MaleId}_{FemaleId}"` (one
+  saved report per couple per owner — re-saving updates `Notes`/`SavedAt`
+  rather than duplicating). Table `saved_match_report`, migration
+  `AddSavedMatchReportTable`, applied to the local Postgres instance.
+  `ISavedMatchReportRepository`/`SavedMatchReportRepository`
+  (`Data/Repositories/NamedRepositories.cs`) follow the existing generic
+  `EfKeyedRepository<T>` pattern; wired into `Repositories` (`Library/Logic/Repositories.cs`)
+  and DI (`API/Program.cs`), identical to every other repository.
+- **`API/FrontDesk/MatchAPI.cs`** — two new JSON endpoints:
+  - `POST /api/SaveMatchReport` (JSON body `{OwnerId, MaleId, FemaleId, Notes}`)
+    — upserts a `SavedMatchReportEntity`.
+  - `GET /api/GetMatchReportList/OwnerId/{ownerId}` — reads all saved rows
+    for that owner, re-computes each report live via the existing
+    `MatchReportFactory` (same as `GetMatchReport`), grafting the saved
+    `Id`/`Notes` onto the freshly-computed report rather than storing the
+    whole report blob (keeps the score always current if the underlying
+    birth data ever changes).
+  - Both covered by `API.IntegrationTests/MatchEndpointsTests.cs`'s
+    `SaveMatchReport_ThenGetMatchReportList_ReturnsSavedReportWithNotes`
+    (save → list → assert Notes, then re-save with different Notes → assert
+    upsert-not-duplicate). Full suite: 19 passed, 3 skipped (Chat, no
+    LM Studio running), 0 failed.
+- **`WebsiteNative`**: `src/lib/api/match.ts` gained `saveMatchReport`/
+  `getMatchReportList`. New screen `src/app/Match/Saved.tsx` ports both
+  `SavedReports.razor` and `MatchReportListViewer.razor` into one screen
+  (couple name, heart-icon score summary, score %, notes, "View" button to
+  `Match/Report`), reloading on focus (`useFocusEffect`) so a report saved
+  from `Match/Report` shows up without a manual refresh. `Match/Report`
+  gained a "Save Report" button (`saveMatchReport` + a success/error toast —
+  see the toast library decision below) and `Match/Index` gained a "View
+  Saved Matches" link. Confirmed via `expo export --platform web`: `/Match/Saved`
+  and the updated `/Match` and `/Match/Report/[maleId]/[femaleId]` routes all
+  bundle/static-render cleanly.
 
 **Verification methodology used throughout** (same bar as Phase 1+2): `tsc
 --noEmit` after every change, `npx expo export --platform web` to confirm
@@ -345,60 +455,97 @@ actual bundling/static-rendering (not just typechecking) of every new
 route, `dotnet build`/`dotnet test` for every API-side change, all API
 integration tests re-run full-suite before considering a slice done.
 
+### Icon library and SweetAlert2/tippy.js replacement — decided and wired up
+
+Both were open blocking decisions in the previous revision of this doc;
+both are now resolved:
+
+- **Icon library: `lucide-react-native`** (chosen over `@expo/vector-icons`
+  for a closer visual match to the old Iconify set). Installed alongside
+  its `react-native-svg` peer dependency. New `src/components/Icon.tsx` is
+  a small **semantic registry**, not a 1:1 Iconify port — it maps a
+  hand-picked set of names (`heart-broken`, `heart-flash`, `heart-half-full`,
+  `cards-heart`, `heart-plus`, `plus`, `search`, `user`) onto Lucide
+  components, covering what's actually used by ported components so far.
+  A `heartIconFromIconify(iconifyName)` helper maps `MatchReport.Summary.HeartIcon`
+  (an Iconify string like `"mdi:heart-plus"` from `Library/Data/MatchReport.cs`)
+  onto the registry, falling back to a plain heart for anything unmapped.
+  Wired into `InfoBox` (optional `icon` prop), `PersonSelector` (search
+  icon, "Add New Person" plus icon), and the new `Match/Saved.tsx` screen
+  (heart-icon score summary). The ~100 distinct Iconify names used across
+  still-unported Blazor pages are **not** all mapped yet — extend the
+  registry as each new page needs an icon it doesn't already have.
+- **SweetAlert2/tippy.js replacement: `react-native-toast-notifications`
+  + a small custom popover** (not `react-native-paper`, to avoid pulling in
+  a whole design-system dependency for two narrow concerns). `<ToastProvider>`
+  wraps the app root in `_layout.tsx`; `src/lib/toast.ts` wraps its global
+  imperative `Toast.show(...)` ref behind `showSuccessToast`/`showErrorToast`,
+  mirroring the shape of the old `_jsRuntime.ShowAlert(type, message)`
+  helper. First real usage: the "Save Report" button on `Match/Report`.
+  `src/components/Popover.tsx` is the tippy.js replacement — deliberately
+  minimal (tap-to-open/tap-to-close centered modal, not a positioned hover
+  tooltip, since RN has no hover concept) — built but not yet consumed by
+  any ported page; `EventsChartViewer`'s heavier tippy usage (still
+  unported) may need a fancier anchored variant when that page is tackled.
+  The existing local `confirm()` helper (`src/lib/confirm.ts`, wraps RN
+  `Alert`) is unchanged and still used for Match's same-person/
+  reversed-gender confirms.
+
 ### Dead/unreachable/deferred code left alone during Phase 3 so far
 
-- **Icon system**: the old app uses Iconify (`data-icon="..."` spans) for
-  essentially every icon (`Icon`/`IconButton`/`IconTitle`/`InfoBox`/
-  `PersonSelectorBox`, etc.). No RN icon library has been chosen yet —
-  `InfoBox`/`PersonSelector` ports so far are text-only, icons dropped
-  rather than faked. Needs a decision (`@expo/vector-icons` is the
-  Expo-bundled default candidate) before porting most other pages, since
-  nearly every remaining component uses one.
-- **SweetAlert2/tippy.js general replacement**: migration.md's Phase 3 plan
-  called for picking one cross-platform library per concern up front. That
-  hasn't happened yet — only a narrow, local `confirm()` helper
-  (`src/lib/confirm.ts`, wraps RN `Alert`) exists, built for Match's
-  same-person/reversed-gender confirms specifically. `EventsChartViewer`'s
-  heavier SweetAlert2 usage (calendar export, SVG export, clipboard,
-  bookmarks — see the original Phase 3 survey) is untouched.
 - **AddPerson / Person.Editor flow**: not ported. `PersonSelector`'s
   "Add New Person" button shows an honest "coming soon" alert instead of
   navigating anywhere. This caps how useful Match/Horoscope/etc. actually
   are right now — a guest or user can only pick from example people until
   this exists.
-- **`Match/Finder`, `Match/SavedReports`, `Match/Profile`**: not ported
-  (only `Match/Index` and a minimal `Match/Report`). Links to
-  `PageRoute.MatchFinder` from both the Home page and Match/Index exist
-  but currently 404 in `WebsiteNative` — expected/incremental, same as any
+- **`Match/Finder`, `Match/Profile`**: still not ported (`Match/Index`,
+  `Match/Report`, and — as of this session — `Match/Saved` are). Links to
+  `PageRoute.MatchFinder` from both the Home page and Match/Index exist but
+  currently 404 in `WebsiteNative` — expected/incremental, same as any
   not-yet-ported route linked from an already-ported page.
 - Old Blazor endpoints/components (`SignInGoogle`/`SignInFacebook` API
   routes, `SignInButton.razor` itself, `MatchReportListViewer.razor`, the
   XML `WebsiteTools.GetSavedMatchList`) are **not dead** — the Blazor site
   still runs and still uses them. Nothing on the API side was removed or
   changed in a way that could break it; only additive endpoints
-  (`SignInFirebase`, `GetMatchReport`) were introduced.
+  (`SignInFirebase`, `GetMatchReport`, `SaveMatchReport`,
+  `GetMatchReportList`) were introduced.
 
 ### Open questions for the rest of Phase 3
 
-- **Icon library choice** — blocks a clean port of most remaining
-  components (see above).
-- **Firebase service-account key** — `/api/SignInFirebase` degrades
-  gracefully without one, but sign-in can't actually complete end-to-end
-  until a real key is generated (Firebase Console → Project Settings →
-  Service Accounts) and placed at `API/firebase-service-account.json`
-  (gitignored).
-- **OAuth redirect URI registration** — the Google/Facebook app
-  registrations reused from the Blazor site only allow `vedastro.org`'s
-  origin today; `WebsiteNative`'s dev/native origins need adding in each
-  console before sign-in completes for real, separately from the Firebase
-  key above.
-- **Saved match reports** — no decision yet on whether to design real
-  Postgres persistence for `GetMatchReportList`/`SaveMatchReport` (a
-  genuinely new feature relative to what Phase 1+2 ported) or leave
-  "saved reports" as a feature the new app simply doesn't have.
-- **SweetAlert2/tippy.js replacement libraries** — still an open pick, not
-  yet needed broadly since so few components are ported, but will block
-  `EventsChartViewer` and any page with tooltips once those come up.
+- ~~Icon library choice~~ — **resolved**: `lucide-react-native` (see above).
+- ~~SweetAlert2/tippy.js replacement libraries~~ — **resolved**:
+  `react-native-toast-notifications` + a custom `Popover` component (see
+  above).
+- ~~Saved match reports~~ — **resolved**: real Postgres persistence was
+  built (see "Saved match reports" above), not dropped.
+- **Firebase service-account key** — still blocked, needs access this
+  session didn't have to the Firebase console. `/api/SignInFirebase`
+  degrades gracefully without one (console warning, not a crash — see
+  `API/Program.cs`), but sign-in can't actually complete end-to-end until
+  someone with console access:
+  1. Opens the Firebase Console → the project's Project Settings → Service
+     Accounts tab.
+  2. Clicks "Generate new private key" (downloads a JSON file).
+  3. Places that file at `API/firebase-service-account.json` (already
+     gitignored, same treatment as `API/appsettings.Development.json`) —
+     or anywhere else, and points `appsettings.Development.json`'s
+     `FirebaseServiceAccountKeyPath` at it.
+  No code change is needed once the key exists; `Program.cs` already reads
+  it conditionally.
+- **OAuth redirect URI registration** — also still blocked, needs access to
+  the Google Cloud Console and Facebook Developer Console. The
+  Google/Facebook app registrations reused from the Blazor site only allow
+  `vedastro.org`'s origin today. Someone with console access needs to:
+  1. Google Cloud Console → APIs & Services → Credentials → the existing
+     OAuth 2.0 Client ID → add `WebsiteNative`'s dev origin
+     (`http://localhost:8081` or whatever `expo start --web` prints) and
+     its eventual production origin to "Authorized JavaScript origins"/
+     "Authorized redirect URIs".
+  2. Facebook Developer Console → the existing app → Facebook Login →
+     Settings → add the same origins to "Valid OAuth Redirect URIs".
+  This is independent of the Firebase key above — both need to be done
+  before Google/Facebook sign-in completes end-to-end in `WebsiteNative`.
 
 ### Phase 4 — Cutover and cleanup
 
@@ -431,3 +578,13 @@ integration tests re-run full-suite before considering a slice done.
 - **Phase 3 native-only JS interop replacements** (SweetAlert2, tippy.js,
   Google/Facebook sign-in): cross-platform RN libraries picked once per
   concern (e.g. `expo-auth-session` for sign-in), not per-platform forks.
+- **Phase 3 icon library**: `lucide-react-native` (over `@expo/vector-icons`),
+  for closer visual parity with the old Iconify icon set.
+- **Phase 3 SweetAlert2/tippy.js library**: `react-native-toast-notifications`
+  for toasts (over `react-native-paper`, to avoid a whole design-system
+  dependency for one narrow concern) + a small custom `Popover` component
+  for tippy.js-style tooltips.
+- **Saved match reports**: build real Postgres persistence
+  (`SavedMatchReportEntity`, `/api/SaveMatchReport`/`/api/GetMatchReportList`)
+  rather than dropping the feature — it's a genuinely new feature (the old
+  endpoint never existed server-side), not a straight port.

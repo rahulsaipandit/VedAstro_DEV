@@ -50,5 +50,8 @@ namespace VedAstro.Library
         // ---- Chat (ChatAPI.cs) ----
         public static IChatMessageRepository ChatMessage { get; set; }
         public static IPresetQuestionEmbeddingsRepository PresetQuestionEmbeddings { get; set; }
+
+        // ---- Saved match reports (MatchAPI.cs) ----
+        public static ISavedMatchReportRepository SavedMatchReport { get; set; }
     }
 }

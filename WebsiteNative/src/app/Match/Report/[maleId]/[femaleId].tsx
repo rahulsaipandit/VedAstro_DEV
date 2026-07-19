@@ -1,27 +1,30 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useAppStore } from '@/store/useAppStore';
-import { getMatchReport, type MatchReport } from '@/lib/api/match';
+import { getMatchReport, saveMatchReport, type MatchReport } from '@/lib/api/match';
+import { showErrorToast, showSuccessToast } from '@/lib/toast';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 
 /**
- * Ported (as a functional MVP, not a full port) from Website/Pages/Calculator/Match/Report.razor.
- * Calls the new live-computed /api/GetMatchReport endpoint (see API/FrontDesk/MatchAPI.cs) — the
- * old page's "save/share this report" section is skipped since that backend feature
- * (GetMatchReportList/SaveMatchReport) was never ported to this ASP.NET Core API and has no
- * Postgres persistence yet, so nothing to wire up there honestly.
+ * Ported from Website/Pages/Calculator/Match/Report.razor. Calls the live-computed
+ * /api/GetMatchReport endpoint (see API/FrontDesk/MatchAPI.cs) for the report itself, plus the
+ * new /api/SaveMatchReport endpoint for the "save this report" action - the old Blazor site's
+ * SaveMatchReport call never had a real backend, this is genuinely new persistence (see
+ * SavedMatchReportEntity), not a port of pre-existing behavior.
  */
 export default function MatchReportScreen() {
   const { maleId, femaleId } = useLocalSearchParams<{ maleId: string; femaleId: string }>();
   const apiUrlDirect = useAppStore((s) => s.apiUrlDirect());
+  const effectiveOwnerId = useAppStore((s) => s.effectiveOwnerId());
 
   const [report, setReport] = useState<MatchReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -31,6 +34,18 @@ export default function MatchReportScreen() {
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load match report'))
       .finally(() => setLoading(false));
   }, [apiUrlDirect, maleId, femaleId]);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await saveMatchReport(apiUrlDirect, effectiveOwnerId, maleId, femaleId, report?.notes ?? '');
+      showSuccessToast('Match report saved!');
+    } catch (e) {
+      showErrorToast(e instanceof Error ? e.message : 'Failed to save match report');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -61,6 +76,12 @@ export default function MatchReportScreen() {
           </ThemedText>
           <ThemedText style={styles.scoreBoxText}>{report.summary.scoreSummary}</ThemedText>
         </ThemedView>
+
+        <Pressable onPress={handleSave} disabled={saving} style={styles.saveButton}>
+          <ThemedText type="smallBold" themeColor="background">
+            {saving ? 'Saving…' : 'Save Report'}
+          </ThemedText>
+        </Pressable>
 
         <ThemedView style={styles.predictionList}>
           {report.predictionList.map((prediction, index) => (
@@ -103,6 +124,13 @@ const styles = StyleSheet.create({
   },
   scoreBoxText: {
     color: '#ffffff',
+  },
+  saveButton: {
+    backgroundColor: '#1a9c4c',
+    alignSelf: 'center',
+    paddingHorizontal: Spacing.five,
+    paddingVertical: Spacing.three,
+    borderRadius: 8,
   },
   predictionList: {
     gap: Spacing.three,

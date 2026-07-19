@@ -53,6 +53,10 @@ namespace VedAstro.Data
         public DbSet<ChatMessageEntity> ChatMessage => Set<ChatMessageEntity>();
         public DbSet<PresetQuestionEmbeddingsEntity> PresetQuestionEmbeddings => Set<PresetQuestionEmbeddingsEntity>();
 
+        // Saved match reports (MatchAPI.cs's SaveMatchReport/GetMatchReportList) - genuinely new
+        // persistence, the old Blazor site's client called an endpoint that never existed server-side.
+        public DbSet<SavedMatchReportEntity> SavedMatchReport => Set<SavedMatchReportEntity>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -90,6 +94,8 @@ namespace VedAstro.Data
 
             ConfigureKeyedTable<ChatMessageEntity>(modelBuilder, "chat_message");
             ConfigureKeyedTable<PresetQuestionEmbeddingsEntity>(modelBuilder, "preset_question_embeddings");
+
+            ConfigureKeyedTable<SavedMatchReportEntity>(modelBuilder, "saved_match_report");
         }
 
         /// <summary>

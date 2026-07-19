@@ -43,6 +43,65 @@ namespace API
                     await APITools.FailMessageJson(e, context);
                 }
             });
+
+            // Saves a couple's match report for later viewing (Website/Pages/Calculator/Match/SavedReports.razor's
+            // backing feature - genuinely new persistence, see SavedMatchReportEntity's header comment). Re-saving
+            // the same couple for the same owner just updates Notes/SavedAt (RowKey = "{maleId}_{femaleId}").
+            app.MapPost("/api/SaveMatchReport", async (HttpContext context) =>
+            {
+                try
+                {
+                    var request = await context.Request.ReadFromJsonAsync<SaveMatchReportRequest>();
+
+                    var entity = new SavedMatchReportEntity
+                    {
+                        PartitionKey = request.OwnerId,
+                        RowKey = $"{request.MaleId}_{request.FemaleId}",
+                        MaleId = request.MaleId,
+                        FemaleId = request.FemaleId,
+                        Notes = request.Notes ?? string.Empty,
+                        SavedAt = DateTimeOffset.UtcNow
+                    };
+
+                    await Repositories.SavedMatchReport.UpsertAsync(entity);
+
+                    await APITools.PassMessageJson(entity.RowKey, context);
+                }
+                catch (Exception e)
+                {
+                    APILogger.Error(e, context.Request);
+                    await APITools.FailMessageJson(e, context);
+                }
+            });
+
+            // Lists all match reports saved by an owner (real UserId or guest VisitorId - same
+            // ownerId scheme as PersonAPI/MatchAPI's other endpoints), live-recomputed via
+            // MatchReportFactory with the saved Id/Notes grafted on.
+            app.MapGet("/api/GetMatchReportList/OwnerId/{ownerId}", async (HttpContext context, string ownerId) =>
+            {
+                try
+                {
+                    var savedList = await Repositories.SavedMatchReport.GetByPartitionKeyAsync(ownerId);
+
+                    var reportList = savedList.Select(saved =>
+                    {
+                        var male = Tools.GetPersonById(saved.MaleId);
+                        var female = Tools.GetPersonById(saved.FemaleId);
+                        var report = MatchReportFactory.GetNewMatchReport(male, female, ownerId);
+                        report.Id = saved.RowKey;
+                        report.Notes = saved.Notes;
+                        return report;
+                    }).ToList();
+
+                    var reportListJson = new Newtonsoft.Json.Linq.JArray(reportList.Select(r => r.ToJson()));
+                    await APITools.PassMessageJson(reportListJson, context);
+                }
+                catch (Exception e)
+                {
+                    APILogger.Error(e, context.Request);
+                    await APITools.FailMessageJson(e, context);
+                }
+            });
         }
 
 
@@ -121,6 +180,15 @@ namespace API
             return personList2;
         }
 
+    }
+
+    /// <summary>Body for POST /api/SaveMatchReport.</summary>
+    public class SaveMatchReportRequest
+    {
+        public string OwnerId { get; set; }
+        public string MaleId { get; set; }
+        public string FemaleId { get; set; }
+        public string Notes { get; set; }
     }
 
 }

@@ -61,3 +61,37 @@ export async function getMatchReport(apiUrlDirect: string, maleId: string, femal
   }
   return matchReportFromJson(json.Payload);
 }
+
+/**
+ * Saves a couple's match report under an owner (real UserId or guest VisitorId), backed by
+ * SavedMatchReportEntity/API/FrontDesk/MatchAPI.cs's new POST /api/SaveMatchReport - real
+ * Postgres persistence, not a port (the old Blazor site's SaveMatchReport endpoint never
+ * actually existed server-side). Re-saving the same couple updates Notes rather than duplicating.
+ */
+export async function saveMatchReport(
+  apiUrlDirect: string,
+  ownerId: string,
+  maleId: string,
+  femaleId: string,
+  notes: string
+): Promise<void> {
+  const response = await fetch(`${apiUrlDirect}/SaveMatchReport`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ OwnerId: ownerId, MaleId: maleId, FemaleId: femaleId, Notes: notes }),
+  });
+  const json = await response.json();
+  if (json.Status !== 'Pass') {
+    throw new Error(typeof json.Payload === 'string' ? json.Payload : 'Failed to save match report');
+  }
+}
+
+/** Lists all match reports saved by an owner (GET /api/GetMatchReportList/OwnerId/{ownerId}). */
+export async function getMatchReportList(apiUrlDirect: string, ownerId: string): Promise<MatchReport[]> {
+  const response = await fetch(`${apiUrlDirect}/GetMatchReportList/OwnerId/${ownerId}`);
+  const json = await response.json();
+  if (json.Status !== 'Pass') {
+    throw new Error(typeof json.Payload === 'string' ? json.Payload : 'Failed to get saved match reports');
+  }
+  return (json.Payload as any[]).map(matchReportFromJson);
+}
