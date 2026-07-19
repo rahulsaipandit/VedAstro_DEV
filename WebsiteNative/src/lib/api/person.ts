@@ -4,13 +4,15 @@
  * (see API/FrontDesk/PersonAPI.cs, reached via the Calculate/{calculatorName} reflection
  * dispatcher — confirmed by API/API.IntegrationTests/PersonEndpointsTests.cs).
  */
+import type { BirthTimeJson } from '@/lib/time';
+
 export type Person = {
   id: string;
   name: string;
   notes: string;
   gender: 'Male' | 'Female';
   ownerId: string;
-  birthTime: unknown;
+  birthTime: BirthTimeJson;
 };
 
 export function personFromJson(json: any): Person {

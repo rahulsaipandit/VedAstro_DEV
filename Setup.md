@@ -1,5 +1,130 @@
 # VedAstro Local Development Setup
 
+## Current Setup (Postgres + ASP.NET Core API + Website + WebsiteNative)
+
+**As of the Postgres migration (branch `feature/postgres-migration`), the backend is
+ASP.NET Core + Postgres + local disk — no Azure Functions, no Azurite, no separate
+Python/Docker ChatAPI. Everything below this section (Azurite, `func start`, the
+`ChatAPI/` Docker/Python service) describes the pre-migration stack and is kept only
+for historical reference — see "Historical: pre-migration stack" further down and
+`CLAUDE.md`.**
+
+There are now **two** frontends running side by side (old Blazor site + new React
+Native/Expo app), plus the shared API and database. Prerequisites, once:
+
+- .NET 8 SDK
+- Node.js + npm
+- A local Postgres instance (a native service, or `docker run postgres` — either
+  counts as "self-hosted on local machine")
+- (Optional, for the Chat feature) [LM Studio](https://lmstudio.ai), running an
+  OpenAI-compatible local server with a chat model loaded
+
+### 1 — Database (one-time, then again after pulling new migrations)
+
+```bash
+cd Data
+dotnet ef database update --project VedAstro.Data.csproj --startup-project VedAstro.Data.csproj
+```
+
+Installs the schema from `Data/Migrations/*.cs` into the `vedastro` database. The
+connection string comes from `API/appsettings.Development.json` (gitignored — copy
+the shape from the committed `API/appsettings.json` and fill in your local Postgres
+credentials if that file doesn't exist yet).
+
+### 2 — API (ASP.NET Core, minimal API — includes chat logic)
+
+```bash
+cd API
+dotnet run
+```
+
+Listens on `http://localhost:7071` (Kestrel).
+
+### 3a — Website (Blazor WASM) — old frontend, still maintained
+
+```bash
+cd Website
+dotnet run
+```
+
+Listens on `http://localhost:5000` (prints the exact URL on startup). By default it
+talks to the deployed API, not your local one — use the sidebar "Local API" toggle,
+then reload, to point it at `localhost:7071`.
+
+### 3b — WebsiteNative (React Native / Expo) — new frontend, in progress
+
+```bash
+cd WebsiteNative
+npm install          # first time only, or after package.json changes
+npx expo start --web
+```
+
+Prints a URL to open in your browser (Expo's web dev server). The same codebase also
+runs on iOS/Android via `npm run ios` / `npm run android` (needs Xcode / Android
+Studio + a simulator or device).
+
+By default WebsiteNative talks to the deployed API, not your local one. To point it
+at `localhost:7071/api`: tap the **"Local API: OFF"** badge in the bottom-right
+corner (visible on every screen) to toggle it **ON** — this is the WebsiteNative
+equivalent of the old Blazor sidebar toggle, backed by `useAppStore`'s `debugMode`
+(persisted via AsyncStorage, see `src/store/useAppStore.ts` /
+`src/components/DebugModeToggle.tsx`).
+
+### 4 — Chat feature (optional) — LM Studio, no Docker/Python service anymore
+
+Chat is handled entirely inside the ASP.NET Core API
+(`Library/Logic/Calculate/ChatAPI.cs`), reached through both the Blazor site and
+WebsiteNative — there is no separate `ChatAPI/` Python/Docker service to run (that
+section further down is historical and no longer applies).
+
+1. Open LM Studio → **Local Server** tab.
+2. Load a chat model (any instruction-tuned model).
+3. Click **Start Server** (default `http://localhost:1234`).
+4. Set these in `API/appsettings.Development.json` (or as environment variables
+   before `dotnet run`):
+   ```json
+   "LOCAL_LLM_BASE_URL": "http://localhost:1234/v1",
+   "LOCAL_LLM_API_KEY": "local-llm",
+   "LOCAL_LLM_MODEL": "<the model name loaded in LM Studio>"
+   ```
+5. Restart `dotnet run` in `API/` after changing these.
+
+Without LM Studio running, Chat requests fail gracefully (no crash) — nothing else
+in the app depends on it. Note: real local-model chat generation can legitimately
+take several minutes depending on model size/hardware — this is expected, not a bug.
+
+### Running tests
+
+```bash
+dotnet test Data/VedAstro.Data.Tests/VedAstro.Data.Tests.csproj
+dotnet test API/API.IntegrationTests/API.IntegrationTests.csproj
+```
+
+Docker must be running (tests use Testcontainers to spin up a disposable Postgres
+per run — nothing to install/start manually for this). Chat-specific tests
+(`ChatEndpointsTests`) self-skip (not fail) unless LM Studio is reachable at
+`LOCAL_LLM_BASE_URL` when the env vars above are also exported into the test shell.
+
+### Summary table
+
+| Service | Command | Default URL | Required? |
+|---|---|---|---|
+| Postgres | native service or `docker run postgres` | `localhost:5432` | ✅ Yes |
+| API | `cd API && dotnet run` | `http://localhost:7071` | ✅ Yes (for local-API testing; both frontends default to the deployed API otherwise) |
+| Website (Blazor) | `cd Website && dotnet run` | `http://localhost:5000` | Optional — the old frontend |
+| WebsiteNative (Expo) | `cd WebsiteNative && npx expo start --web` | prints its own URL | Optional — the new frontend |
+| LM Studio | (external app) | `http://localhost:1234` | Optional — only for Chat |
+
+---
+
+## Historical: pre-migration stack (Azure Functions + Azurite + Python ChatAPI)
+
+**Everything below this line describes the architecture *before* the Postgres
+migration — Azure Functions, the Azurite storage emulator, and a standalone
+Python/Docker `ChatAPI/` service. None of it applies to `feature/postgres-migration`
+or later. Kept only so the history of what this project used to look like isn't
+lost. See "Current Setup" above for how to actually run things today.**
+
 ## Quick Run Commands
 # Terminal 1: Azurite (storage emulator)
 npx azurite
@@ -249,7 +374,14 @@ import { initializeApp } from "firebase/app";
 // https://firebase.google.com/docs/web/setup#available-libraries
 
 // Your web app's Firebase configuration
-
+const firebaseConfig = {
+  apiKey: "AIzaSyASpfs9LOsedFz1mJvvJAsjKW9x_opagl8",
+  authDomain: "vedastro1-001.firebaseapp.com",
+  projectId: "vedastro1-001",
+  storageBucket: "vedastro1-001.firebasestorage.app",
+  messagingSenderId: "850521630629",
+  appId: "1:850521630629:web:add5df1ef5e8252cde2a4c"
+};
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);

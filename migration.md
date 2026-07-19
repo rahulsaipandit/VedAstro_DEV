@@ -455,6 +455,55 @@ actual bundling/static-rendering (not just typechecking) of every new
 route, `dotnet build`/`dotnet test` for every API-side change, all API
 integration tests re-run full-suite before considering a slice done.
 
+**Horoscope** (`Calculator/Horoscope.razor` → `src/app/Horoscope/index.tsx` +
+`src/app/Horoscope/[personId].tsx`) — first calculator page ported (highest-traffic per the
+porting-order decision above):
+- New `src/lib/time.ts`: `timeToUrl(birthTime)` rebuilds `Time.cs`'s `ToUrl()` format
+  (`/Location/{name}/Time/{HH:mm}/{dd}/{MM}/{yyyy}/{zzz}`) client-side from a person's
+  already-parsed `BirthTime` JSON (`{StdTime, Location: {Name, Longitude, Latitude}}` — `Time.cs`'s
+  `ToJson()`/`FromJson()` shape), instead of carrying a `Time` object across the network.
+  `Person.birthTime` (`src/lib/api/person.ts`) is now typed as `BirthTimeJson` instead of `unknown`.
+- New `src/lib/api/horoscope.ts` replaces vedastro.js's reflection-metadata-driven
+  `GenerateAstroTable`/`GenerateAshtakvargaTable` (which built one fetch per table cell from
+  `/ListCalls` metadata) with **typed, fixed-shape fetches** against the same underlying
+  reflection-dispatched `Calculate/{name}` endpoints — confirmed by reading the actual
+  `Library/Logic/Calculate/*.cs` method signatures rather than trusting the JS-side column
+  metadata: `getHoroscopePredictions`, `getPlanetTable` (6 columns × 9 planets), `getHouseTable`
+  (5 columns × 12 houses), `getSarvashtakavargaChart`/`getBhinnashtakavargaChart` (parses
+  `Sarvashtakavarga.ToJson()`'s `{Total, Rows}` per-planet shape, and `Bhinnashtakavarga`'s plain
+  `{ZodiacName: points}` map, into one common `AshtakvargaRow` shape), plus
+  `getSkyChartImageUrl`/`getIndianChartImageUrl` (no JSON — server-rendered image URLs, per the
+  `SkyChartViewer.razor`/`IndianChart.razor` `<img>`-only pattern already noted above).
+- **Known gap found and left visible, not hidden**: the house table's "Aspects" column
+  (`PlanetsAspectingHouse(HouseName, Time)`) has **no real implementation in `Library`** — only a
+  documentation-only entry in `Library/Data/OpenAPIStaticTable.cs`, confirmed by grepping for an
+  actual method definition and finding none. `callCalculate()` degrades any failing/missing
+  endpoint to a `"—"` cell rather than crashing the whole table, so this reads as a normal empty
+  cell today; flagged here the same way `LibraryTests`' pre-existing gaps are flagged, rather than
+  silently worked around.
+- New components: `SkyChartViewer.tsx`/`IndianChart.tsx` (straight `<Image>` ports, no interop, as
+  predicted), `HoroscopeReferenceList.tsx` (prediction list — the original's planet/house/sign
+  filter dropdowns were already a `"todo"` stub in the Blazor source, so the unfiltered list is a
+  faithful port of what actually worked, not a regression), `PlanetDataTable.tsx`/
+  `HouseDataTable.tsx`/`AshtakvargaTable.tsx` (horizontally-scrollable RN tables replacing
+  vedastro.js's DOM table generation).
+- Ayanamsa/chart-style selection is a small custom "chip" row (`ChipGroup` in
+  `[personId].tsx`) rather than a native `<select>`/RN picker — no picker library was installed
+  yet in `WebsiteNative`, and pulling one in for two narrow enum choices didn't seem worth it;
+  revisit if more pages need a real dropdown.
+- **Not ported this session (deferred, same bar as other Phase 3 gaps)**: `StrengthChart.razor`
+  (hand-rolled `<canvas>` + JS interop bar charts, confirmed genuinely canvas-based, no RN
+  equivalent chosen yet) and `PlanetChart.razor` (inline hand-built SVG bars from client-computed
+  `Calculate.AllPlanetStrength`, labeled "Experimental" in the original UI — lower priority, and
+  would need either an equivalent API endpoint or porting the strength calculation to the client).
+  `AIPrediction.razor` (a second, more elaborate ranked-prediction view over the same
+  `HoroscopePredictions` data `HoroscopeReferenceList` already shows) also not ported — judged
+  redundant with `HoroscopeReferenceList` for a first pass, not a gap in coverage.
+- Verified via `npx tsc --noEmit` (clean aside from two pre-existing, unrelated CSS-module type
+  errors already present before this change) and `npx expo export --platform web` — `/Horoscope`
+  and `/Horoscope/[personId]` both bundle/static-render cleanly alongside the previously-ported
+  routes.
+
 ### Icon library and SweetAlert2/tippy.js replacement — decided and wired up
 
 Both were open blocking decisions in the previous revision of this doc;
