@@ -337,7 +337,7 @@ Old entity → new home mapping, confirmed against the current codebase:
 
 | Old Azure Table entity                                                                                            | Current home                                                                                                                       |
 |-------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|
-| `BodyInfoDatasetEntity`, `PersonNameEmbeddingsEntity`                                                             | `Data/Entities/MatchMLDatasetEntities.cs`                                                                                          |
+| `BodyInfoDatasetEntity`, `PersonNameEmbeddingsEntity`, `MarriageTrainingDatasetEntity`                            | `Data/Entities/MatchMLDatasetEntities.cs`                                                                                          |
 | `LifeEventRow`                                                                                                    | `Data/Entities/LifeEventRow.cs` + `ILifeEventRepository`                                                                           |
 | `PersonListEntity`                                                                                                | `Data/Entities/PersonListEntity.cs` (extensions in `Library/Logic/PersonListEntityExtensions.cs`) + `IPersonRepository`            |
 | `PersonShareRow`                                                                                                  | `Data/Entities/PersonShareRow.cs` + `IPersonShareRepository`                                                                       |
@@ -353,12 +353,8 @@ Old entity → new home mapping, confirmed against the current codebase:
 
 `Data/Migrations/` contains the EF Core migration history (`InitialCreate`,
 `AddGeoLocationCacheTables`, `AddMatchMLDatasetTables`, `AddChatTables`,
-`AddSavedMatchReportTable`), applied via `dotnet ef database update` per `CLAUDE.md`.
-
-**One leftover found during this audit:** `Library/Data/AzureTable/MarriageTrainingDatasetEntity.cs`
-is a genuine dead file — still physically present, still references the old Azure Table
-pattern, and is not referenced anywhere else in the codebase. It should be deleted or migrated
-alongside `BodyInfoDatasetEntity`'s equivalent.
+`AddSavedMatchReportTable`, `AddMarriageTrainingDatasetTable`), applied via
+`dotnet ef database update` per `CLAUDE.md`.
 
 ## Core Astrological Algorithms
 
@@ -797,7 +793,11 @@ still open, marked below.
    SwiftUI launcher's equivalent code is already fully commented out/inactive, so it was left
    as historical reference rather than touched.)
 3. ~~`Library/Data/AzureTable/MarriageTrainingDatasetEntity.cs` is dead, unreferenced code~~ —
-   deleted.
+   migrated to `Data/Entities/MatchMLDatasetEntities.cs` (`MarriageTrainingDatasetEntity` POCO +
+   `IMarriageTrainingDatasetRepository`, table `marriage_training_dataset`,
+   `GetEmbeddingsArray()` extension in `Library/Logic/MatchMLDatasetEntityExtensions.cs`), wired
+   into `MatchMLPipeline/DatasetFactory.cs` alongside its sibling repos; the old Azure Table file
+   was then deleted.
 4. ~~`AzureCache.cs`'s class name is misleading~~ — renamed to `Library/Logic/ChartCache.cs`
    (`ChartCache` class), all three call sites (`PersonAPI.cs`, `EventsChartAPI.cs`) and
    surrounding doc comments updated.
