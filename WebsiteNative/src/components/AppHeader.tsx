@@ -66,15 +66,30 @@ const NAV_GROUPS: NavGroup[] = [
  * separate mobile navbar) since RN doesn't have a natural breakpoint-driven layout swap and this
  * app is mobile-first anyway.
  */
+const COLLAPSIBLE_GROUPS = new Set(['Account', 'More']);
+
 export function AppHeader() {
   const theme = useTheme();
   const router = useRouter();
   const currentUser = useAppStore((s) => s.currentUser);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  function toggleGroup(title: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) {
+        next.delete(title);
+      } else {
+        next.add(title);
+      }
+      return next;
+    });
+  }
 
   function go(route: string) {
     setMenuOpen(false);
-    router.push((route === '/' ? '/' : `/${route}`) as never);
+    router.push((route.startsWith('/') ? route : `/${route}`) as never);
   }
 
   return (
@@ -103,18 +118,35 @@ export function AppHeader() {
             style={[styles.drawer, { backgroundColor: theme.background }]}
             onPress={(e) => e.stopPropagation()}>
             <ScrollView contentContainerStyle={styles.drawerContent}>
-              {NAV_GROUPS.map((group) => (
-                <View key={group.title} style={styles.group}>
-                  <ThemedText type="smallBold" themeColor="textSecondary">
-                    {group.title}
-                  </ThemedText>
-                  {group.items.map((item) => (
-                    <Pressable key={item.route} onPress={() => go(item.route)} style={styles.navRow}>
-                      <ThemedText type="small">{item.label}</ThemedText>
-                    </Pressable>
-                  ))}
-                </View>
-              ))}
+              {NAV_GROUPS.map((group) => {
+                const collapsible = COLLAPSIBLE_GROUPS.has(group.title);
+                const expanded = !collapsible || expandedGroups.has(group.title);
+                return (
+                  <View key={group.title} style={styles.group}>
+                    {collapsible ? (
+                      <Pressable
+                        onPress={() => toggleGroup(group.title)}
+                        style={styles.groupHeader}
+                        accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} ${group.title}`}>
+                        <ThemedText type="smallBold" themeColor="textSecondary">
+                          {group.title}
+                        </ThemedText>
+                        <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={16} />
+                      </Pressable>
+                    ) : (
+                      <ThemedText type="smallBold" themeColor="textSecondary">
+                        {group.title}
+                      </ThemedText>
+                    )}
+                    {expanded &&
+                      group.items.map((item) => (
+                        <Pressable key={item.route} onPress={() => go(item.route)} style={styles.navRow}>
+                          <ThemedText type="small">{item.label}</ThemedText>
+                        </Pressable>
+                      ))}
+                  </View>
+                );
+              })}
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -167,6 +199,11 @@ const styles = StyleSheet.create({
   },
   group: {
     gap: Spacing.one,
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   navRow: {
     paddingVertical: Spacing.two,

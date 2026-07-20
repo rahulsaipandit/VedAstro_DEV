@@ -185,10 +185,13 @@ public class OpenAPIMetadata : EventArgs, IToJson
                 var signature = calc.GetMethodSignature();
                 var metadata = OpenAPIStaticTable.Rows.FirstOrDefault(x => x.Signature == signature);
 
-                // Log to server and skip current iteration if metadata is null
+                // Skip current iteration if metadata is null (not yet documented in OpenAPIStaticTable).
+                // Commented out: this fires for every undocumented Calculate method on every startup
+                // (dozens of lines), but a missing OpenAPIStaticTable row is expected/non-fatal - it
+                // just means that method isn't exposed via the OpenAPI docs yet, not that anything broke.
                 if (metadata == null)
                 {
-                    LibLogger.Debug($"METHOD NOT FOUND!!!! --> {signature}");
+                    //LibLogger.Debug($"METHOD NOT FOUND!!!! --> {signature}");
                     continue;
                 }
 

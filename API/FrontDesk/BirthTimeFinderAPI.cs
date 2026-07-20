@@ -9,7 +9,15 @@ namespace API
     {
         public static void MapBirthTimeFinderEndpoints(this WebApplication app)
         {
-            app.MapGet("/api/FindBirthTime/EventsChart/PersonId/{personId}", async (HttpContext context, string personId) =>
+            app.MapGet("/api/FindBirthTime/EventsChart/PersonId/{personId}", async (
+                HttpContext context,
+                string personId,
+                int maxWidth = 800,
+                double precisionInHours = 1,
+                string? startDate = null,
+                string? endDate = null,
+                string? startHour = null,
+                string? endHour = null) =>
             {
                 try
                 {
@@ -17,20 +25,24 @@ namespace API
                     var foundPerson = Tools.GetPersonById(personId);
 
                     //generate the needed charts
-                    var eventTags = new List<EventTag> { EventTag.PD1, EventTag.PD2, EventTag.PD3, EventTag.PD4, EventTag.PD5, EventTag.Gochara };
-                    var algorithmFuncsList = new List<AlgorithmFuncs>() { Algorithm.General };
+                    var eventTags = new List<EventTag> { EventTag.PD1, EventTag.PD2, EventTag.PD3, EventTag.PD4, EventTag.PD5, EventTag.PD6, EventTag.PD7 };
+                    var algorithmFuncsList = new List<AlgorithmFuncs>() { Algorithm.General, Algorithm.IshtaKashtaPhalaDegree, Algorithm.PlanetStrengthDegree };
                     var summaryOptions = new ChartOptions(algorithmFuncsList);
 
-                    //time range is preset to full life 100 years from birth
-                    var start = foundPerson.BirthTime;
-                    var end = foundPerson.BirthTime.AddYears(100);
+                    //time range defaults to full life (birth date -> birth date + 100 years), caller can override
+                    var startDateParsed = startDate ?? foundPerson.BirthDateMonthYear;
+                    var endDateParsed = endDate ?? $"{foundPerson.BirthDateMonthYear[..6]}{foundPerson.BirthYear + 100}";
+                    var start = new Time($"00:00 {startDateParsed} {foundPerson.BirthTimeZoneString}", foundPerson.GetBirthLocation());
+                    var end = new Time($"00:00 {endDateParsed} {foundPerson.BirthTimeZoneString}", foundPerson.GetBirthLocation());
                     var timeRange = new TimeRange(start, end);
 
                     //calculate based on max screen width,
-                    var daysPerPixel = EventsChart.GetDayPerPixel(timeRange, 1500);
+                    var daysPerPixel = EventsChart.GetDayPerPixel(timeRange, maxWidth);
 
-                    //get list of possible birth time slice in the current birth day
-                    var possibleTimeList = Tools.GetTimeSlicesOnBirthDay(foundPerson, 1);
+                    //get list of possible birth times within the given hour range on the birth day (defaults to whole day)
+                    var startHourParsed = new Time($"{startHour ?? "00:00"} {foundPerson.BirthDateMonthYearOffset}", foundPerson.GetBirthLocation());
+                    var endHourParsed = new Time($"{endHour ?? "23:59"} {foundPerson.BirthDateMonthYearOffset}", foundPerson.GetBirthLocation());
+                    var possibleTimeList = Time.GetTimeListFromRange(startHourParsed, endHourParsed, precisionInHours);
 
                     var combinedSvg = "";
                     var chartYPosition = 30; //start with top padding
@@ -61,7 +73,7 @@ namespace API
                     var finalSvg = EventsChartFactory.WrapSvgElements(
                         svgClass: "MultipleDasa",
                         combinedSvgString: combinedSvg,
-                        svgWidth: 800,
+                        svgWidth: maxWidth + 100,
                         svgTotalHeight: chartYPosition,
                         randomId: Tools.GenerateId(),
                         svgBackgroundColor: "#757575"); //grey easy on the eyes
