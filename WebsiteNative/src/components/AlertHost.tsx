@@ -115,6 +115,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
     borderRadius: 8,
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
   },
 });

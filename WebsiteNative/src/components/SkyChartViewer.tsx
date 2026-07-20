@@ -22,9 +22,10 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 12,
     overflow: 'hidden',
-    aspectRatio: 1,
+    // SkyChart is a wide horizontal ruler/timeline (see Calculate.SkyChart's 750x230), not a
+    // square grid like IndianChart - forcing aspectRatio: 1 here squashed/distorted it. It gets
+    // its own full-width row on the Horoscope page, so no maxWidth cap here either.
+    aspectRatio: 750 / 230,
     width: '100%',
-    maxWidth: 500,
-    alignSelf: 'center',
   },
 });

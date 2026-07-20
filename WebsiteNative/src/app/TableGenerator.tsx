@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
   },
   addRowButton: {
     alignSelf: 'flex-start',
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
     borderRadius: 8,
@@ -265,11 +265,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#00000010',
   },
   chipActive: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
   },
   generateButton: {
     alignSelf: 'flex-start',
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     paddingHorizontal: Spacing.five,
     paddingVertical: Spacing.three,
     borderRadius: 8,

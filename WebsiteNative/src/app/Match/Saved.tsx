@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
     flex: 2,
   },
   viewButton: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     borderRadius: 8,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.one,

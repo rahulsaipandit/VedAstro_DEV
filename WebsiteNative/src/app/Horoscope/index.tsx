@@ -85,7 +85,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   calculateButton: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     paddingHorizontal: Spacing.five,
     paddingVertical: Spacing.three,
     borderRadius: 8,

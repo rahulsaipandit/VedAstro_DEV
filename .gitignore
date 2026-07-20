@@ -373,7 +373,7 @@ Website/DeleteAndPublish.ps1
 Website/SyncFiles.ps1
 /Website/.env
 
-# Repo Versioning set by Publisher before deploy, so don't track
+# Repo versioning stamp files (auto-generated at build time), don't track
 API/ThisAssembly.cs
 Website/ThisAssembly.cs
 
@@ -406,7 +406,6 @@ MatchMLPipeline/secrets.json
 HuggingFace/PersonNameEmbeddings-15k.csv
 
 HuggingFace/RawRequestStatistic.csv
-/Publisher/secrets.json
 /API/local.settings.json
 /API/appsettings.Development.json
 /MigrateGeoLocationData/appsettings.json

@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   calculateButton: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
     borderRadius: 8,

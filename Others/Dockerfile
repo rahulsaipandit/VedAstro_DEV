@@ -2,25 +2,26 @@
 
 RUN echo "VedAstro API Docker Build Starting"
 
-FROM mcr.microsoft.com/azure-functions/dotnet-isolated:4-dotnet-isolated7.0 AS base
-WORKDIR /home/site/wwwroot
-EXPOSE 80
-EXPOSE 433
+#Plain ASP.NET Core container - the API is a Kestrel minimal API (no Azure Functions
+#host), so this just builds/publishes/runs it like any other .NET app.
 
-
-FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY ["API/API.csproj", "API/"]
+COPY ["Data/VedAstro.Data.csproj", "Data/"]
+COPY ["Library/Library.csproj", "Library/"]
 RUN dotnet restore "API/API.csproj"
 COPY . .
+
 WORKDIR "/src/API"
-RUN dotnet build "API/API.csproj" -c Release -o /app/build
+RUN dotnet build "API.csproj" -c Release -o /app/build
 
 FROM build AS publish
-RUN dotnet publish "API/API.csproj" -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "API.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
-FROM base AS final
-WORKDIR /home/site/wwwroot
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
 COPY --from=publish /app/publish .
-ENV AzureWebJobsScriptRoot=/home/site/wwwroot \
-    AzureFunctionsJobHost__Logging__Console__IsEnabled=true
+EXPOSE 7071
+ENV ASPNETCORE_URLS=http://+:7071
+ENTRYPOINT ["dotnet", "API.dll"]

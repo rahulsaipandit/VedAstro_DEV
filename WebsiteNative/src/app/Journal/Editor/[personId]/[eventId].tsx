@@ -294,7 +294,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#00000010',
   },
   chipActive: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
   },
   buttonRow: {
     flexDirection: 'row',
@@ -314,7 +314,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   saveButton: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     paddingHorizontal: Spacing.five,
     paddingVertical: Spacing.three,
     borderRadius: 8,

@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   searchButton: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     paddingHorizontal: Spacing.five,
     paddingVertical: Spacing.three,
     borderRadius: 8,
@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
     gap: Spacing.half,
   },
   viewButton: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     borderRadius: 8,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.one,

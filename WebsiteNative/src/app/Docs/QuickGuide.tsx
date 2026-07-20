@@ -162,11 +162,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#00000010',
   },
   chipActive: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
   },
   goButton: {
     alignSelf: 'flex-start',
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
     borderRadius: 8,

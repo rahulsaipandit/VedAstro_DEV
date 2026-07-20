@@ -228,11 +228,18 @@ export function getSkyChartImageUrl(apiUrlDirect: string, birthTime: BirthTimeJs
   return `${apiUrlDirect}/Calculate/SkyChart${timeToUrl(birthTime)}`;
 }
 
-/** Calculate/{chartStyle}IndianChart{timeUrl} — server-rendered image (see IndianChart.razor). */
+/**
+ * Calculate/{chartStyle}IndianChart{timeUrl}ChartType/{chartType}Ayanamsa/{ayanamsa} —
+ * server-rendered image (see IndianChart.razor). `Ayanamsa/{value}` is a global URL convention
+ * (see API/FrontDesk/OpenAPI.cs's ParseAndSetAyanamsa) understood by every Calculate/* endpoint,
+ * not just this one - it gets stripped out and applied before the call is dispatched.
+ */
 export function getIndianChartImageUrl(
   apiUrlDirect: string,
   birthTime: BirthTimeJson,
-  chartStyle: 'South' | 'North'
+  chartStyle: 'South' | 'North',
+  chartType: string = 'RasiD1',
+  ayanamsa: string = DEFAULT_AYANAMSA
 ): string {
-  return `${apiUrlDirect}/Calculate/${chartStyle}IndianChart${timeToUrl(birthTime)}`;
+  return `${apiUrlDirect}/Calculate/${chartStyle}IndianChart${timeToUrl(birthTime)}ChartType/${chartType}Ayanamsa/${ayanamsa}`;
 }

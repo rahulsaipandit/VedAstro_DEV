@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
   },
   sendButton: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
     margin: Spacing.one,

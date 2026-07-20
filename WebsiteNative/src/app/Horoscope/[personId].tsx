@@ -26,7 +26,7 @@ import {
   type PlanetTableRow,
 } from '@/lib/api/horoscope';
 import { loadCalculationPreferences } from '@/lib/preferences';
-import { Spacing, MaxContentWidth } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 
 const AYANAMSA_OPTIONS = ['LahiriChitrapaksha', 'Raman', 'KrishnamurtiKP', 'FaganBradley', 'Yukteshwar', 'J2000'];
 
@@ -130,18 +130,37 @@ export default function HoroscopeResultScreen() {
           />
         </ThemedView>
 
+        <ThemedView style={styles.skyChartRow}>
+          <ThemedText type="smallBold" style={styles.sectionTitle}>
+            Sky Chart
+          </ThemedText>
+          <SkyChartViewer apiUrlDirect={apiUrlDirect} birthTime={person.birthTime} />
+        </ThemedView>
+
         <ThemedView style={styles.chartsRow}>
           <View style={styles.chartHalf}>
             <ThemedText type="smallBold" style={styles.sectionTitle}>
-              Sky Chart
+              Birth Chart (Rasi D1)
             </ThemedText>
-            <SkyChartViewer apiUrlDirect={apiUrlDirect} birthTime={person.birthTime} />
+            <IndianChart
+              apiUrlDirect={apiUrlDirect}
+              birthTime={person.birthTime}
+              chartStyle={chartStyle}
+              chartType="RasiD1"
+              ayanamsa={ayanamsa}
+            />
           </View>
           <View style={styles.chartHalf}>
             <ThemedText type="smallBold" style={styles.sectionTitle}>
-              Birth Chart
+              Navamsha (D9)
             </ThemedText>
-            <IndianChart apiUrlDirect={apiUrlDirect} birthTime={person.birthTime} chartStyle={chartStyle} />
+            <IndianChart
+              apiUrlDirect={apiUrlDirect}
+              birthTime={person.birthTime}
+              chartStyle={chartStyle}
+              chartType="NavamshaD9"
+              ayanamsa={ayanamsa}
+            />
           </View>
         </ThemedView>
 
@@ -241,7 +260,7 @@ const chipStyles = StyleSheet.create({
     backgroundColor: '#00000010',
   },
   chipActive: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
   },
 });
 
@@ -257,7 +276,6 @@ const styles = StyleSheet.create({
   },
   page: {
     width: '100%',
-    maxWidth: MaxContentWidth,
     paddingHorizontal: Spacing.three,
     paddingTop: Spacing.five,
     paddingBottom: Spacing.six,
@@ -267,6 +285,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.four,
+  },
+  skyChartRow: {
+    width: '100%',
+    gap: Spacing.two,
   },
   chartsRow: {
     flexDirection: 'row',

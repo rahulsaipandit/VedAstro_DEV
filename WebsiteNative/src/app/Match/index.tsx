@@ -136,7 +136,7 @@ const styles = StyleSheet.create({
     gap: Spacing.four,
   },
   calculateButton: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     alignSelf: 'flex-start',
     paddingHorizontal: Spacing.five,
     paddingVertical: Spacing.three,

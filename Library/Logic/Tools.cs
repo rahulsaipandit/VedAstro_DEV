@@ -577,10 +577,12 @@ namespace VedAstro.Library
         {
             var parsedIcon = Svg.SvgDocument.FromSvg<Svg.SvgDocument>(svgIconString);
 
-            //set custom width & height
-            parsedIcon.Height = (SvgUnit)height;
-            parsedIcon.Width = (SvgUnit)width;
-            //parsedIcon.ViewBox = new SvgViewBox(0, 0, (float)width, (float)height);
+            //compute the icon's natural size (viewBox if present, else its own width/height)
+            //before it gets flattened below, so the group transform can reproduce the same
+            //scale/center that a nested <svg width=.. height=.. viewBox=..> would have given
+            var viewBox = parsedIcon.ViewBox;
+            var naturalWidth = viewBox.Width > 0 ? viewBox.Width : (float)parsedIcon.Width.Value;
+            var naturalHeight = viewBox.Height > 0 ? viewBox.Height : (float)parsedIcon.Height.Value;
 
             var final = parsedIcon.GetXML();
 
@@ -589,7 +591,55 @@ namespace VedAstro.Library
             //<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
             final = final.Replace("<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">", "");
 
-            return final;
+            //Illustrator-exported icons (e.g. the moon phase icons) carry a <style> block with
+            //.stN class rules - react-native-svg's XML-to-native-element mapping doesn't apply
+            //<style>/class the way a browser does, so inline each rule as a style="" attribute
+            //and drop the <style> block and class attributes entirely
+            final = InlineCssClasses(final);
+
+            //react-native-svg (used to render these server-side SVGs via SvgUri on the app side)
+            //only understands a single root <svg> - a nested <svg> icon inside it gets silently
+            //dropped instead of rendered, so flatten this icon's own <svg> wrapper into a <g>
+            //with a transform that reproduces the same uniform scale-to-fit + center that the
+            //nested <svg>'s default preserveAspectRatio="xMidYMid meet" would have done
+            final = System.Text.RegularExpressions.Regex.Replace(final.Trim(), @"^<svg\b[^>]*>", "").Trim();
+            final = System.Text.RegularExpressions.Regex.Replace(final, @"</svg>\s*$", "").Trim();
+
+            var scale = Math.Min(width / naturalWidth, height / naturalHeight);
+            var offsetX = (width - naturalWidth * scale) / 2;
+            var offsetY = (height - naturalHeight * scale) / 2;
+
+            return $"<g transform=\"translate({offsetX},{offsetY}) scale({scale})\">{final}</g>";
+        }
+
+        /// <summary>
+        /// Resolves a &lt;style&gt;.stN{{...}}&lt;/style&gt; block (as exported by Illustrator)
+        /// into inline style="" attributes on the elements using class="stN", then removes the
+        /// &lt;style&gt; block and any leftover class attributes.
+        /// </summary>
+        private static string InlineCssClasses(string svg)
+        {
+            var styleMatch = Regex.Match(svg, @"<style[^>]*>(.*?)</style>", RegexOptions.Singleline);
+            if (!styleMatch.Success) { return svg; }
+
+            var classRules = new Dictionary<string, string>();
+            foreach (Match rule in Regex.Matches(styleMatch.Groups[1].Value, @"\.([\w-]+)\s*\{([^}]*)\}"))
+            {
+                classRules[rule.Groups[1].Value] = rule.Groups[2].Value.Trim().TrimEnd(';');
+            }
+
+            svg = svg.Remove(styleMatch.Index, styleMatch.Length);
+
+            svg = Regex.Replace(svg, @"class=""([^""]+)""", match =>
+            {
+                var css = string.Join(";", match.Groups[1].Value
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(classRules.ContainsKey)
+                    .Select(className => classRules[className]));
+                return string.IsNullOrEmpty(css) ? "" : $"style=\"{css}\"";
+            });
+
+            return svg;
         }
 
         public static Image Svg2Png(string svg, int width, int height)

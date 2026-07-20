@@ -66,8 +66,6 @@ The sage **`Parashara taught everybody`** the ways of astrology without asking m
 # 📊 +200 Astro API Calls
 Below is sample API call result for data related to "**Sun**" on "**30/06/2023**" at "**Singapore**"
  [Watch Video Guide](https://www.youtube.com/watch?v=y110RAgIorY)
- [JS Demo Files](https://github.com/VedAstro/VedAstro/tree/master/Demo/JavaScript)
- [Demo API Call](https://vedastroapi.azurewebsites.net/api/Calculate/AllPlanetData/PlanetName/Sun/Location/Singapore/Time/00:00/24/04/2024/+08:00)
 ```json
  "Payload": {
     "SwissEphemeris": "{ Longitude = 97.672406549912, Latitude = 2.2248025536827577E-05, DistanceAU = 1.0165940297895264, SpeedLongitude = 0, SpeedLatitude = 0, SpeedDistance = 0 }",

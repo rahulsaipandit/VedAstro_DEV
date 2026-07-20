@@ -20,9 +20,15 @@ namespace VedAstro.Library
         private const string FrameColorDark = "#c4741f";
         private const string HouseBadgeColor = "#2a5db0";
 
+        //SkyChart is a wide horizontal ruler/timeline (angle ruler + zodiac band + house band +
+        //planet icons hanging below), not a square grid like the Indian chart - 750x230 is the
+        //original Azure-era aspect ratio it was designed around, so it must NOT reuse ChartSize
+        private const int SkyChartWidth = 750;
+        private const int SkyChartHeight = 230;
+
         /// <summary>Gets sky chart at a given time. SVG image, URL can be used like an image source link.</summary>
         public static async System.Threading.Tasks.Task<string> SkyChart(Time time) =>
-            await SkyChartFactory.GenerateChart(time, ChartSize, ChartSize);
+            await SkyChartFactory.GenerateChart(time, SkyChartWidth, SkyChartHeight);
 
         /// <summary>Creates a Kundali chart (D1 to D20) in South Indian style. SVG image.</summary>
         public static string SouthIndianChart(Time time, ChartType chartType = ChartType.RasiD1) => GenerateIndianChartSvg(time, chartType, northIndianStyle: false);

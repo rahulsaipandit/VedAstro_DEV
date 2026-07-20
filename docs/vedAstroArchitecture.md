@@ -10,10 +10,39 @@ The migration is tracked live in `migration.md` (repo root). Summary of where th
 - **Phase 3 (frontend: Blazor WASM → React Native/Expo + TypeScript, `WebsiteNative/`)** — in
   progress; old (`Website/`) and new (`WebsiteNative/`) frontends run side by side.
 - **Phase 4 (cutover + cleanup — point production hosting at the new stack, delete the Blazor
-  project, remove remaining Azure SDK references/scaffolding)** — **not started**. This is why a
-  handful of satellite tools (`Desktop/`, `Publisher/`, `API/Dockerfile`) still assume the old
-  Azure Functions/Blob/CDN world — see [Known Migration Gaps](#known-migration-gaps-pending-phase-4)
-  at the end of this document.
+  project, remove remaining Azure SDK references/scaffolding)** — **not started as a phase**,
+  but several of its safe code-level items (a stale `API/Dockerfile`, a broken `Desktop/`
+  launcher, dead Azure Table leftovers) have since been fixed piecemeal. The actual DNS/hosting
+  cutover remains untouched — see [Known Migration Gaps](#known-migration-gaps-pending-phase-4)
+  at the end of this document for the full list of what's fixed vs. still open.
+
+## Solution Projects at a Glance
+
+Every project registered in `VedAstro.sln`, and whether it's actually needed by the current
+non-Azure architecture:
+
+| Project                 | Needed?          | What it does                                                                                   |
+|-------------------------|------------------|------------------------------------------------------------------------------------------------|
+| `Library`               | **Yes — core**   | The astrology calculation engine (charts, dasas, algorithms). Everything else depends on it.   |
+| `API`                   | **Yes — core**   | The live ASP.NET Core minimal API (Kestrel), backed by Postgres. This is the backend.          |
+| `VedAstro.Data`         | **Yes — core**   | The EF Core/Postgres data layer (entities, repositories, migrations, local-disk chart cache) that replaced Azure Table Storage. |
+| `Website`               | **Yes — current**| The Blazor WebAssembly frontend — still the live production frontend during the Phase 3 transition to `WebsiteNative`. |
+| `LibraryTests`          | Yes — dev/CI     | Unit tests for `Library`. Not shipped, but needed to trust changes to the calculation engine. |
+| `VedAstro.Data.Tests`   | Yes — dev/CI     | Tests for the Postgres data layer (spins up a real ephemeral Postgres via Testcontainers).|
+| `API.IntegrationTests`  | Yes — dev/CI     | Full HTTP-level tests against the real API via `WebApplicationFactory`.                   |
+| `StaticTableGenerator`  | Useful — dev tool| Codegen: regenerates `OpenAPIStaticTable.cs`, Python API stubs, and static event/horoscope data classes from XML + Roslyn. Run occasionally when calculator methods or XML data change, not part of runtime.|
+| `Console`               | Useful — dev tool        | Standalone CLI for finding optimal birth times / generating event-chart SVGs. Uses `Library` directly, no Azure dependency. |
+| `MigrateGeoLocationData`| Useful — occasional tool | Bulk-loads geo/timezone CSV data into Postgres. Actively migrated (uses `AppDbContext`/`PersonRepository`), not Azure-based.|
+| `WebScraper`            | Useful — occasional tool | Python scraper pulling public astrological data, POSTs to the local API (`http://localhost:7071`). |
+| `LLMCoder`              | Unrelated but harmless   | A WinForms dev-productivity tool for chatting with LLMs while coding. Nothing to do with VedAstro's runtime architecture either way. |
+| `Website_Mobile`        | **No — deprecated**      | Old static-HTML mobile frontend. Explicitly marked out-of-scope in `migration.md`, last touched Feb 2025, superseded by `WebsiteNative`. Not deleted yet.|
+| `APITester`             | **No — stale**           | Manual console smoke-test tool. Hardcoded to `https://vedastroapi.azurewebsites.net/api/` (the old Azure Functions endpoint) — never updated for the new API, not referenced by anything else, targets the out-of-support `net7.0`. Builds, but points at the wrong/old target. |
+| `Demo` (`Website/wwwroot/Demo/`) | **No — dead**   | An old-style ASP.NET "Web Site" project (classic .NET Framework 4.8, `AspNetCompiler`-based) nested inside `Website/wwwroot/Demo/`. Contains JS/Python samples that also hit the old Azure Functions domain; its own README is empty; the repo-root README's link to it already points at a stale path. **Cannot build at all in this repo's toolchain** — ASP.NET "Web Site" projects require the classic Windows-only ASP.NET Compiler bundled with full MSBuild, not `dotnet build`, so the `MSB4249` failure is a hard incompatibility, not a config issue. Nothing else references or serves it. |
+| `MaintenanceAPI`       | **No — phantom** | The `.sln` references `MaintenanceAPI/MaintenanceAPI.csproj`, but that folder doesn't exist anywhere in the repo, on any branch (`git log --all` shows it was never committed). Dead solution-file entry.  |
+
+Note: `Desktop/*` (APILauncher, Windows, MAUI app), `MatchMLPipeline/`, `DocToEmbeddings/`, and
+`ViewComponents/` are real, actively-relevant projects (see their own sections below) but are
+**not** part of `VedAstro.sln` at all — they build independently.
 
 # vedastro/vedastro Architecture
 
@@ -306,21 +335,21 @@ CACHE --> DISK
 
 Old entity → new home mapping, confirmed against the current codebase:
 
-| Old Azure Table entity | Current home |
-|---|---|
-| `BodyInfoDatasetEntity`, `PersonNameEmbeddingsEntity` | `Data/Entities/MatchMLDatasetEntities.cs` |
-| `LifeEventRow` | `Data/Entities/LifeEventRow.cs` + `ILifeEventRepository` |
-| `PersonListEntity` | `Data/Entities/PersonListEntity.cs` (extensions in `Library/Logic/PersonListEntityExtensions.cs`) + `IPersonRepository` |
-| `PersonShareRow` | `Data/Entities/PersonShareRow.cs` + `IPersonShareRepository` |
-| `UserDataListEntity` | `Data/Entities/UserDataListEntity.cs` + `IUserDataRepository` |
-| `AnalyticsEntity` and other statistic rows | `Data/Entities/StatisticEntities.cs`, `CallInfoStatisticEntity.cs` |
-| `CallStatusEntity` | `Data/Entities/CallStatusEntity.cs` + `ICallTrackerRepository` |
-| `GeoLocationCacheEntity` + the 6 other geolocation entities (address/coordinates/IP/timezone + metadata variants) | `Data/Entities/GeoLocationEntities.cs` (7 tables) |
-| `OpenAPIErrorBookEntity` | `Data/Entities/OpenAPIErrorBookEntity.cs` + `IOpenAPIErrorBookRepository` |
-| `OpenAPILogBookEntity` | `Data/Entities/WebsiteLogEntities.cs` + `IWebsiteErrorLogRepository`/`IWebsiteDebugLogRepository` |
-| `AnonymousIpCallRecords` / `SubscriberCallRecords` (throttling) | `IAnonymousIpCallRecordRepository` / `ISubscriberCallRecordRepository` |
-| Azure Blob chart-image cache | `Data/Cache/LocalDiskChartImageCache.cs` (`IChartImageCache`) |
-| *(new — no old equivalent)* | `Data/Entities/ChatMessageEntity.cs` (ChatAPI history), `SavedMatchReportEntity.cs` (saved match reports, a genuinely new feature) |
+| Old Azure Table entity                                                                                            | Current home                                                                                                                       |
+|-------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|
+| `BodyInfoDatasetEntity`, `PersonNameEmbeddingsEntity`                                                             | `Data/Entities/MatchMLDatasetEntities.cs`                                                                                          |
+| `LifeEventRow`                                                                                                    | `Data/Entities/LifeEventRow.cs` + `ILifeEventRepository`                                                                           |
+| `PersonListEntity`                                                                                                | `Data/Entities/PersonListEntity.cs` (extensions in `Library/Logic/PersonListEntityExtensions.cs`) + `IPersonRepository`            |
+| `PersonShareRow`                                                                                                  | `Data/Entities/PersonShareRow.cs` + `IPersonShareRepository`                                                                       |
+| `UserDataListEntity`                                                                                              | `Data/Entities/UserDataListEntity.cs` + `IUserDataRepository`                                                                      |
+| `AnalyticsEntity` and other statistic rows                                                                        | `Data/Entities/StatisticEntities.cs`, `CallInfoStatisticEntity.cs`                                                                 |
+| `CallStatusEntity`                                                                                                | `Data/Entities/CallStatusEntity.cs` + `ICallTrackerRepository`                                                                     |
+| `GeoLocationCacheEntity` + the 6 other geolocation entities (address/coordinates/IP/timezone + metadata variants) | `Data/Entities/GeoLocationEntities.cs` (7 tables)                                                                                  |
+| `OpenAPIErrorBookEntity`                                                                                          | `Data/Entities/OpenAPIErrorBookEntity.cs` + `IOpenAPIErrorBookRepository`                                                          |
+| `OpenAPILogBookEntity`                                                                                            | `Data/Entities/WebsiteLogEntities.cs` + `IWebsiteErrorLogRepository`/`IWebsiteDebugLogRepository`                                  |
+| `AnonymousIpCallRecords` / `SubscriberCallRecords` (throttling)                                                   | `IAnonymousIpCallRecordRepository` / `ISubscriberCallRecordRepository`                                                             |
+| Azure Blob chart-image cache                                                                                      | `Data/Cache/LocalDiskChartImageCache.cs` (`IChartImageCache`)                                                                      |
+| *(new — no old equivalent)*                                                                                       | `Data/Entities/ChatMessageEntity.cs` (ChatAPI history), `SavedMatchReportEntity.cs` (saved match reports, a genuinely new feature) |
 
 `Data/Migrations/` contains the EF Core migration history (`InitialCreate`,
 `AddGeoLocationCacheTables`, `AddMatchMLDatasetTables`, `AddChatTables`,
@@ -408,6 +437,61 @@ Vedic compatibility (Kuta) reports between two people. `SkyChartFactory.cs` prod
 (zodiac ruler, houses, planet positions along the ecliptic) and can render an animated GIF by
 sequencing SVG frames. `IndianChartFactory.cs` (formerly split across `NorthChartFactory.cs`/
 `SouthChartFactory.cs`) renders South/North Indian style Kundali charts.
+
+### Sky Chart
+
+`Calculate.SkyChart(Time time)` (`Library/Logic/Factory/IndianChartFactory.cs`) is a thin
+wrapper around `SkyChartFactory.GenerateChart(time, 750, 230)` — a fixed 750x230 landscape
+canvas (this ratio matters: it's a horizontal ruler/timeline, not a square grid, and the
+Horoscope page's `SkyChartViewer.tsx` sizes its container to match this aspect ratio rather than
+forcing a square). `GenerateChart` assembles the SVG from several independently-generated
+sub-components, concatenated in this order:
+1. **Angle ruler** (`GenerateAngleRuler`) — a 0-360° degree scale drawn as tick marks across the
+   canvas width, with a text label every 10°.
+2. **Zodiac ruler** (`GenerateZodiacRuler`) — the 360° zodiac band image
+   (`Resources/SkyChart/zodiac-360.svg`, an embedded assembly resource, not fetched over HTTP)
+   scaled to the canvas width.
+3. **House ruler** (`GenerateHouseRuler`) — calls `Calculate.AllHouseLongitudes(time)` to find
+   each house's start/end longitude, then paints a small "HOUSE {n}" badge at that house's
+   position along the ruler.
+4. **Planet icons** (`GetAllPlanetLineIcons`) — for each planet's longitude
+   (`Calculate.AllPlanetLongitude(time)`), draws a vertical line down from the ruler to an icon
+   (the Moon's icon additionally varies by lunar day, via `Calculate.LunarDay`). Icons that would
+   collide horizontally are stacked onto separate rows (`incrementRate` vertical offset per row)
+   instead of overlapping.
+5. **Border** (`GetBorderSvg`) — a single rounded-rect outline around the whole canvas.
+
+All of the above per-icon SVGs (`Tools.GetSvgIconLocal`/`FormatSvgIcon` in `Library/Logic/
+Tools.cs`) are flattened into `<g transform="...">` groups with an explicit scale/translate
+(and any Illustrator-exported `<style>` class rules inlined as `style=""`) before being spliced
+into the parent SVG — never left as a nested `<svg>` or a `class=` attribute. This matters
+because the SVG is rendered client-side by `react-native-svg`'s `SvgUri` (see the Frontends
+section below), which maps SVG XML directly onto native/DOM elements and does not support a
+nested `<svg>` (it gets silently dropped) or a bare `class` attribute (logs an "Invalid DOM
+property `class`" warning on web and does nothing on native).
+
+### Birth Chart (Indian Chart)
+
+`Calculate.SouthIndianChart(time, chartType)` / `NorthIndianChart(time, chartType)`
+(`Library/Logic/Factory/IndianChartFactory.cs`) render a 480x480 square Kundali grid: a 4x4 grid
+of cells framed by an orange picture-frame border with corner tabs, 12 of the cells are houses
+(each with a house-number badge, the zodiac sign it's in, and the planets occupying it) and the
+4 center cells merge into one title cell naming the chart (e.g. "Rasi D1", "Navamsha D9").
+`chartType` (the `ChartType` enum, `Library/Data/Enum/ChartType.cs`) selects which divisional
+chart (`D1`-`D60`) to compute and defaults to `RasiD1` if the caller omits it. South vs North
+Indian style only changes which houses are fixed vs rotate with the ascendant
+(`northIndianStyle` flag into the shared `GenerateIndianChartSvg`); the house/planet/sign
+computation itself is identical either way.
+
+Both chart endpoints, like every `Calculate/*` endpoint, also accept a trailing
+`Ayanamsa/{value}` URL segment (e.g. `.../ChartType/NavamshaD9/Ayanamsa/RAMAN`) — this is a
+global convention handled by `API/FrontDesk/OpenAPI.cs`'s `ParseAndSetAyanamsa`, which strips it
+out of the URL and sets `Calculate.Ayanamsa` before the reflection-dispatched method is invoked,
+so it works for any endpoint without that endpoint declaring an `ayanamsa` parameter itself. The
+Horoscope page's frontend (`WebsiteNative/src/lib/api/horoscope.ts`'s
+`getIndianChartImageUrl`) uses this to render two Birth Charts side by side per person — the
+natal `RasiD1` chart and the `NavamshaD9` (marriage/D9) chart — both against the same
+`SouthIndianChart`/`NorthIndianChart` endpoint, differing only by the `ChartType` segment.
 
 **Important caveat specific to this session's work:** `IndianChartFactory.cs`'s doc comment
 notes it was *"reconstructed from scratch"* — the original chart-drawing implementation was
@@ -563,7 +647,7 @@ subgraph Deprecated["Stale / superseded"]
     Mobile["Website_Mobile/<br/>(static HTML, last touched Feb 2025)"]
 end
 
-subgraph Broken["Not yet updated for new API host"]
+subgraph DesktopGroup["Updated this session"]
     Desktop["Desktop/<br/>(.NET MAUI + APILauncher)"]
 end
 
@@ -572,7 +656,7 @@ API["ASP.NET Core API :7071"]
 Website <--> API
 Native <--> API
 Mobile -.->|abandoned, out of scope| API
-Desktop -.->|shells out to func.exe,<br/>which no longer exists| API
+Desktop -->|launches api-build/API directly| API
 ```
 
 **`Website/`** — the Blazor WebAssembly frontend, still the current production frontend during
@@ -596,14 +680,13 @@ found and fixed during this session).
 relative to `WebsiteNative`'s active daily development. Superseded, not maintained, not deleted
 yet.
 
-**`Desktop/`** — the .NET MAUI cross-platform desktop app. **Not migrated, and currently
-broken relative to the new API.** `Desktop/APILauncher/Program.cs`,
-`Desktop/Windows/Form1.cs`, and the macOS launcher all still shell out to
-`Azure.Functions.Cli/func.exe start` to launch the backend — but the migrated API no longer
-builds as an Azure Functions host, so this invocation will fail once a build stops producing
-Functions-shaped output. `migration.md`'s phased plan doesn't mention `Desktop/` at all; per its
-Phase 4 notes, remaining Azure Functions scaffolding is meant to be removed at cutover, so this
-is expected-but-not-yet-addressed technical debt rather than a surprise regression.
+**`Desktop/`** — the .NET MAUI cross-platform desktop app. `Desktop/APILauncher/Program.cs` and
+`Desktop/Windows/Form1.cs` used to shell out to `Azure.Functions.Cli/func.exe start`, which would
+have failed outright once the API stopped building as an Azure Functions host. Fixed this
+session (part of Phase 4 cleanup): both now launch a self-contained `API`/`API.exe` executable
+directly from an `api-build/` folder next to the launcher, no Functions CLI involved. (The macOS
+SwiftUI launcher's equivalent code was already fully commented out/inactive, so it was left as
+historical reference rather than touched.)
 
 ## Machine Learning and Data Pipelines
 
@@ -631,33 +714,37 @@ dependency to migrate away from.
 Migration status varies per tool — some were actively updated, some were never Azure-coupled,
 and two (`Publisher/`, and the API's own `Dockerfile`) are genuine leftovers pending Phase 4:
 
-| Tool | Purpose | Migration status |
-|---|---|---|
-| `Console/` | Finds optimal birth times, generates event-chart SVGs | Mostly updated — Azure Blob calls are now dead/commented (`Console/Program.cs`), though `Console.csproj` still carries an unused `Azure.Storage.Blobs` package reference (cleanup opportunity) |
-| `LLMCoder/` | WinForms LLM coding assistant | Untouched, unrelated to the migration (its few "Azure" hits are `Color.Azure`, a WinForms color constant, not cloud services) |
-| `MigrateGeoLocationData/` | Bulk-loads geo/timezone CSV data | **Actively migrated** — `Program.cs` now uses EF Core + `Npgsql` against the same `AppDbContext`/`PersonRepository` as the API. The old Azure-Table-targeting code (`ProgramTimezone.cs`) is fully commented out, superseded rather than deleted outright |
-| `WebScraper/` | Python scraper for public astrological data (Astro-Seek.com) | Unaffected — already POSTs to `http://localhost:7071/api/Calculate/AddPerson/...`, which is still the correct port/shape under the new Kestrel host |
-| `StaticTableGenerator/` | Generates OpenAPI metadata, Python stubs, static data tables via Roslyn | Untouched, never had an Azure dependency |
+| Tool                      | Purpose                                                                 | Migration status                                                                                                                                                                                                                                          |
+|---------------------------|-------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Console/`                | Finds optimal birth times, generates event-chart SVGs                   | Mostly updated — Azure Blob calls are now dead/commented (`Console/Program.cs`), though `Console.csproj` still carries an unused `Azure.Storage.Blobs` package reference (cleanup opportunity)                                                            |
+| `LLMCoder/`               | WinForms LLM coding assistant                                           | Untouched, unrelated to the migration (its few "Azure" hits are `Color.Azure`, a WinForms color constant, not cloud services)                                                                                                                             |
+| `MigrateGeoLocationData/` | Bulk-loads geo/timezone CSV data                                        | **Actively migrated** — `Program.cs` now uses EF Core + `Npgsql` against the same `AppDbContext`/`PersonRepository` as the API. The old Azure-Table-targeting code (`ProgramTimezone.cs`) is fully commented out, superseded rather than deleted outright |
+| `WebScraper/`             | Python scraper for public astrological data (Astro-Seek.com)            | Unaffected — already POSTs to `http://localhost:7071/api/Calculate/AddPerson/...`, which is still the correct port/shape under the new Kestrel host                                                                                                       |
+| `StaticTableGenerator/`   | Generates OpenAPI metadata, Python stubs, static data tables via Roslyn | Untouched, never had an Azure dependency                                                                                                                                                                                                                  |
 
 ## Deployment and Publishing
 
 ```mermaid
 flowchart TB
 
-subgraph Stale["Not reconciled with the new backend (pending Phase 4)"]
+subgraph Stale["Not reconciled with the new backend (pending Phase 4, needs an infra decision)"]
     Publisher["Publisher/<br/>Azure Blob Storage + CDN purge"]
-    Dockerfile["API/Dockerfile<br/>Azure Functions isolated-worker base image"]
 end
 
 subgraph Missing["Gap"]
     CI["No in-repo CI/CD workflow<br/>builds/deploys API or Website"]
 end
 
+subgraph Fixed["Fixed this session"]
+    Dockerfile["API/Dockerfile<br/>now plain ASP.NET Core / .NET 8"]
+end
+
 Publisher -.->|deploys static assets to| AzureBlob[("Azure Blob Storage<br/>+ Azure CDN")]
-Dockerfile -.->|would not correctly run| KestrelAPI["The current Kestrel-based API"]
+Dockerfile -->|correctly builds/runs| KestrelAPI["The current Kestrel-based API"]
 ```
 
-**This section documents a real, unreconciled gap, not a described-and-working system.**
+**The `Publisher/` situation documents a real, unreconciled gap; `API/Dockerfile` has since been
+fixed (see below).**
 
 `Publisher/` still deploys web assets entirely through **Azure Blob Storage + Azure CDN**:
 `Program.cs` uses `Azure.Storage.Blobs`'s `BlobServiceClient`, syncs local folders to a blob
@@ -668,13 +755,18 @@ Postgres migration. `migration.md`'s own "Decisions" section records the new hos
 just old, it actively describes a different hosting model than what the rest of this document
 describes, and it isn't clear from the repo alone how (or whether) it's still used for
 whatever currently serves the deployed API at `vedastroapi.azurewebsites.net` (per `CLAUDE.md`).
+Left alone this session — the replacement deploy mechanism isn't something inferable from the
+repo, it needs an explicit decision.
 
-`API/Dockerfile` is similarly stale: its base image is
-`mcr.microsoft.com/azure-functions/dotnet-isolated:4-dotnet-isolated7.0`, it sets
-`AzureWebJobsScriptRoot`/`AzureFunctionsJobHost__*` environment variables, and it targets the
-.NET 7 isolated-worker SDK — none of which apply to the current API, which is a plain ASP.NET
-Core Kestrel app targeting .NET 8 (`API/API.csproj`). This Dockerfile would not correctly build
-or run the current API as written.
+`API/Dockerfile` **was** similarly stale (Azure Functions isolated-worker base image,
+`AzureWebJobsScriptRoot`/`AzureFunctionsJobHost__*` env vars, .NET 7 SDK) but has been rewritten
+this session as a plain multi-stage build: `mcr.microsoft.com/dotnet/sdk:8.0` for build/publish,
+`mcr.microsoft.com/dotnet/aspnet:8.0` for the runtime image, `dotnet API.dll` as the entrypoint,
+port 7071 exposed. This also surfaced a related bug: `API/Program.cs` bound Kestrel with
+`ListenLocalhost(7071)`, which only accepts loopback connections — inside a container, the
+request arrives over the container's external network interface, not loopback, so this would
+never have been reachable through Docker's port mapping regardless of the base image. Changed to
+`ListenAnyIP(7071)` (still reachable via `localhost:7071` for local dev either way).
 
 There is no other CI/CD configuration in this repository: the only GitHub Actions workflow
 (`.github/workflows/UpdateLLMCodes.yml`) just mirrors the unrelated `LLMCoder/` folder to a
@@ -686,39 +778,72 @@ process or lives outside this repository — this document can't confirm which.
 A consolidated list of every stale-or-broken item found while producing this document, cross
 referenced against `migration.md`'s own Phase 4 plan ("point hosting at the new stack, remove
 Blazor project, remove remaining Azure SDK references and Azure Functions scaffolding"). None
-of these are surprises exactly — they're the specific things Phase 4 is scoped to clean up —
-but they weren't itemized anywhere before this audit:
+of these were surprises exactly — they're the specific things Phase 4 is scoped to clean up —
+but they weren't itemized anywhere before this audit. The safe, code-level items have since
+been fixed; the ones requiring an infrastructure decision or premature to do mid-Phase-3 are
+still open, marked below.
 
-1. **`API/Dockerfile`** still uses an Azure Functions isolated-worker base image and .NET 7 SDK;
-   won't correctly containerize the current .NET 8 Kestrel API.
-2. **`Desktop/`** (APILauncher + Windows/macOS launchers) still shells out to
-   `Azure.Functions.Cli/func.exe start`; will fail once builds stop producing Functions-shaped
-   output.
-3. **`Publisher/`** still deploys exclusively via Azure Blob Storage + Azure CDN, describing a
+**Fixed:**
+
+1. ~~`API/Dockerfile` still uses an Azure Functions isolated-worker base image and .NET 7 SDK~~
+   — rewritten as a plain multi-stage `mcr.microsoft.com/dotnet/sdk:8.0` build /
+   `mcr.microsoft.com/dotnet/aspnet:8.0` runtime image, `dotnet API.dll` entrypoint, port 7071.
+   (This also surfaced a real bug in `API/Program.cs`: Kestrel was bound with `ListenLocalhost`,
+   which only accepts loopback connections and would never have been reachable through Docker's
+   port mapping — changed to `ListenAnyIP`.)
+2. ~~`Desktop/` (APILauncher + Windows launcher) still shells out to
+   `Azure.Functions.Cli/func.exe start`~~ — both now launch a self-contained `API`/`API.exe`
+   executable directly from an `api-build/` folder; no Functions CLI involved. (The macOS
+   SwiftUI launcher's equivalent code is already fully commented out/inactive, so it was left
+   as historical reference rather than touched.)
+3. ~~`Library/Data/AzureTable/MarriageTrainingDatasetEntity.cs` is dead, unreferenced code~~ —
+   deleted.
+4. ~~`AzureCache.cs`'s class name is misleading~~ — renamed to `Library/Logic/ChartCache.cs`
+   (`ChartCache` class), all three call sites (`PersonAPI.cs`, `EventsChartAPI.cs`) and
+   surrounding doc comments updated.
+5. ~~`Console.csproj` carries an unused `Azure.Storage.Blobs` package reference~~ — removed.
+
+**Still open** (infrastructure decisions or premature while Phase 3 is in progress — deliberately
+left alone):
+
+6. **`Publisher/`** still deploys exclusively via Azure Blob Storage + Azure CDN, describing a
    hosting model (`migration.md` records the new target as "self-hosted on local computer")
-   that no longer matches the rest of the architecture.
-4. **No CI/CD workflow in-repo** builds or deploys the API or Website for the new architecture.
-5. **`Library/Data/AzureTable/MarriageTrainingDatasetEntity.cs`** is dead, unreferenced code —
-   the one Azure Table entity file left physically in the repo after the rest were deleted.
-6. **`AzureCache.cs`**'s class name is misleading — it's fully local-disk backed now, not Azure
-   Blob backed. Cosmetic, but worth renaming to avoid confusing future readers.
-7. **`Console.csproj`** carries an unused `Azure.Storage.Blobs` package reference (the code that
-   used it is now commented out).
+   that no longer matches the rest of the architecture. Left alone pending an explicit decision
+   on what the new deploy mechanism actually is — not something inferable from the repo alone.
+7. **No CI/CD workflow in-repo** builds or deploys the API or Website for the new architecture.
 8. **`Website_Mobile/`** is stale and unmaintained (last commit Feb 2025) but not yet deleted,
-   despite being explicitly superseded by `WebsiteNative/`.
-9. **`Constellation` didn't implement `IToJson`** (found/fixed this session) — any endpoint
-   returning a bare `Constellation` serialized to `{}` over the wire.
-10. **`IndianChartFactory.cs`'s `SouthIndianChart`/`NorthIndianChart`** required a `ChartType`
-    URL parameter that no client ever sent, breaking every Birth Chart request outright (found/
-    fixed this session — `chartType` now defaults to `ChartType.RasiD1`).
-11. **`SkyChartFactory.cs`'s per-house-icon template** embedded two complete SVG font
+   despite being explicitly superseded by `WebsiteNative/`. Left alone — deleting a whole
+   frontend is a real, hard-to-reverse call better made deliberately, not as incidental cleanup.
+9. **DNS/hosting cutover to the new stack** — an infrastructure/ops action outside this repo.
+
+**Also fixed this session** (chart-rendering bugs found while working on the Horoscope page,
+unrelated to the Azure migration itself but worth keeping in the historical record):
+
+10. **`Constellation` didn't implement `IToJson`** — any endpoint returning a bare
+    `Constellation` serialized to `{}` over the wire.
+11. **`IndianChartFactory.cs`'s `SouthIndianChart`/`NorthIndianChart`** required a `ChartType`
+    URL parameter that no client ever sent, breaking every Birth Chart request outright —
+    `chartType` now defaults to `ChartType.RasiD1`.
+12. **`SkyChartFactory.cs`'s per-house-icon template** embedded two complete SVG font
     definitions once per house marker (12x duplication), inflating a single Sky Chart response
-    to ~4.6MB (found/fixed this session — fonts removed, relies on the client's default
-    sans-serif instead).
-12. **`SkyChartFactory.cs`'s `GetAllPlanetLineIcons`** had its row-collision-avoidance
+    to ~4.6MB — fonts removed, relies on the client's default sans-serif instead.
+13. **`SkyChartFactory.cs`'s `GetAllPlanetLineIcons`** had its row-collision-avoidance
     `incrementRate` hardcoded to `0`, silently defeating the vertical-stacking logic and causing
-    same-row planet icons to render on top of each other (found/fixed this session).
-13. **`WebsiteNative`'s chart components** (`IndianChart.tsx`, `SkyChartViewer.tsx`) used React
+    same-row planet icons to render on top of each other.
+14. **`WebsiteNative`'s chart components** (`IndianChart.tsx`, `SkyChartViewer.tsx`) used React
     Native's built-in `Image` component for server-rendered SVGs, which only decodes SVG on web
-    (via the browser) — not on native iOS/Android, where charts would render blank. Fixed this
-    session by switching to `react-native-svg`'s `SvgUri`.
+    (via the browser) — not on native iOS/Android, where charts would render blank. Switched to
+    `react-native-svg`'s `SvgUri`.
+15. **`Calculate.SkyChart`'s wrapper reused the Birth Chart's `480x480` square `ChartSize`**
+    instead of `SkyChartFactory`'s own historical `750x230` landscape dimensions (confirmed via
+    `git log -p`) — squashing the ruler/timeline layout into a square. Fixed by giving SkyChart
+    its own `750x230` constants and matching `SkyChartViewer.tsx`'s container `aspectRatio` to
+    it instead of forcing `1`.
+16. **`SkyChartFactory.cs` and the icon SVGs it injects (`Tools.GetSvgIconLocal`) used nested
+    `<svg>` tags and `class="..."` attributes** — invisible in a browser `<img>`, but
+    `react-native-svg`'s `SvgUri` (used by `SkyChartViewer.tsx`/`IndianChart.tsx`, see #14) drops
+    nested `<svg>` elements entirely and logs an "Invalid DOM property `class`" warning for bare
+    `class` attributes on web. Fixed by flattening icon `<svg>` wrappers into `<g transform=...>`
+    groups (preserving the same scale/center a nested `<svg>`'s default
+    `preserveAspectRatio="xMidYMid meet"` would have given) and inlining any Illustrator
+    `<style>` class rules as `style=""` attributes, in `Tools.FormatSvgIcon`.

@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#00000010',
   },
   chipActive: {
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
   },
   input: {
     borderWidth: 1,

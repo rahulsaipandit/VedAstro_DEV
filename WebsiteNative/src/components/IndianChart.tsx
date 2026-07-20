@@ -15,14 +15,22 @@ export function IndianChart({
   apiUrlDirect,
   birthTime,
   chartStyle,
+  chartType = 'RasiD1',
+  ayanamsa,
 }: {
   apiUrlDirect: string;
   birthTime: BirthTimeJson;
   chartStyle: 'South' | 'North';
+  chartType?: string;
+  ayanamsa?: string;
 }) {
   return (
     <ThemedView style={styles.container} type="backgroundElement">
-      <SvgUri uri={getIndianChartImageUrl(apiUrlDirect, birthTime, chartStyle)} width="100%" height="100%" />
+      <SvgUri
+        uri={getIndianChartImageUrl(apiUrlDirect, birthTime, chartStyle, chartType, ayanamsa)}
+        width="100%"
+        height="100%"
+      />
     </ThemedView>
   );
 }

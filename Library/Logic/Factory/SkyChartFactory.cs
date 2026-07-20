@@ -141,7 +141,7 @@ namespace VedAstro.Library
 				var svgTotalHeight = heightPx;//todo for now hard set, future use: verticalYAxis;
 				var svgTotalWidth = widthPx;//todo for now hard set, future use: verticalYAxis;
 				var svgStyle = $@"background:{svgBackgroundColor};";//end of style tag
-				svgHead = $"<svg viewBox=\"0 0 {svgTotalWidth} {svgTotalHeight}\" width=\"{svgTotalWidth}px\" height=\"{svgTotalHeight}px\" style=\"{svgStyle}\" class=\"SkyChartHolder\" id=\"{randomId}\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">";//much needed for use tags to work
+				svgHead = $"<svg viewBox=\"0 0 {svgTotalWidth} {svgTotalHeight}\" width=\"{svgTotalWidth}px\" height=\"{svgTotalHeight}px\" style=\"{svgStyle}\" id=\"{randomId}\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">";//much needed for use tags to work
 
 				svgTail = "</svg>";
 				contentTail = "</g>";
@@ -171,7 +171,7 @@ namespace VedAstro.Library
 			var borderWidth = svgWidth + 2; //contentPadding = 2 todo centralize
 			var roundedBorder = 3;
 			//var compiledRow = $"<rect class=\"Border\" rx=\"{roundedBorder}\" width=\"{borderWidth}\" height=\"{svgTotalHeight}\" style=\"stroke-width: 1; fill: none; paint-order: stroke; stroke:#333;\"></rect>";
-			var compiledRow = $"\t<rect transform=\"translate(10, 15)\" class=\"Border\" rx=\"3\" width=\"{borderWidth - 30}\" height=\"{svgTotalHeight - 30}\" style=\"stroke-width: 1; fill: none; paint-order: stroke; stroke: rgb(51, 51, 51);\"/>";
+			var compiledRow = $"\t<rect transform=\"translate(10, 15)\" rx=\"3\" width=\"{borderWidth - 30}\" height=\"{svgTotalHeight - 30}\" style=\"stroke-width: 1; fill: none; paint-order: stroke; stroke: rgb(51, 51, 51);\"/>";
 
 			return compiledRow;
 		}
@@ -354,8 +354,7 @@ namespace VedAstro.Library
 
 			iconSvg = $@"
 
-<svg version=""1.1""  xmlns=""http://www.w3.org/2000/svg"" xmlns:xlink=""http://www.w3.org/1999/xlink"" x=""0px"" y=""0px""
-	 width=""30px"" height=""8.9px"" viewBox=""0 0 30 8.9"" enable-background=""new 0 0 30 8.9"" xml:space=""preserve"">
+<g>
 
 	<rect opacity=""0.5"" fill=""#6ABD45"" width=""30"" height=""8.9""/>
 <text transform=""matrix(1 0 0 1 7.7085 6.4961)""><tspan x=""0"" y=""0"" font-family=""'GillSansMT'"" font-size=""5.189px"">HOUSE</tspan><tspan x=""16.7"" y=""0"" font-family=""'GillSansMT-Bold'"" font-size=""5.189px""> {houseEvent.HouseNumber}</tspan></text>
@@ -367,8 +366,8 @@ namespace VedAstro.Library
 	c0,0,0,0,0,0c-0.9-1-1.9-1.9-2.8-2.9c-0.9,1-1.9,1.9-2.8,2.9c0.1,0,0.1,0,0.2,0c0.2,0,0.3,0,0.5,0c0.2,0,0.2,0,0.2,0.2
 	c0,0.7,0,1.5,0,2.2c0,0.1,0,0.1,0,0.2c0.5,0,0.9,0,1.3,0c0-0.1,0-0.1,0-0.2c0-0.5,0-0.9,0-1.4c0-0.2,0-0.2,0.2-0.2
 	c0.3,0,0.6,0,0.9,0c0.2,0,0.2,0,0.2,0.2C4.4,5.8,4.4,6.3,4.4,6.9z""/>
-</svg>
-          
+</g>
+
 ";
 
 			var ratio = widthPx / 360;
@@ -1086,7 +1085,7 @@ namespace VedAstro.Library
 			int iconYAxis = lineHeight; //start icon at end of line
 			var iconXAxis = $"-{backgroundWidth / 2}"; //use negative to move center under main line
 			var iconSvg = $@"
-                                <rect class=""vertical-line"" fill=""#1E1EEA"" width=""2"" height=""{lineHeight}""></rect>
+                                <rect fill=""#1E1EEA"" width=""2"" height=""{lineHeight}""></rect>
                                 <!-- {planet.GetPlanetName().Name} ICON LABEL -->
                                 <g transform=""translate({iconXAxis},{iconYAxis})"">
                                    {planetIcon}

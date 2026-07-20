@@ -219,7 +219,7 @@ const styles = StyleSheet.create({
   },
   generateButton: {
     alignSelf: 'flex-start',
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     paddingHorizontal: Spacing.five,
     paddingVertical: Spacing.three,
     borderRadius: 8,
@@ -233,7 +233,7 @@ const styles = StyleSheet.create({
   },
   testButton: {
     alignSelf: 'flex-start',
-    backgroundColor: '#1a9c4c',
+    backgroundColor: '#0d6efd',
     paddingHorizontal: Spacing.five,
     paddingVertical: Spacing.three,
     borderRadius: 8,
