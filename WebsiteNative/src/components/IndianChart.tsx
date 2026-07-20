@@ -1,12 +1,15 @@
-import { Image, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { SvgUri } from 'react-native-svg';
 
 import { ThemedView } from './themed-view';
 import type { BirthTimeJson } from '@/lib/time';
 import { getIndianChartImageUrl } from '@/lib/api/horoscope';
 
 /**
- * Port of ViewComponents/Components/IndianChart.razor — also a plain <img> against a
- * server-rendered chart image (South/North style baked into the URL path), no interop lift.
+ * Port of ViewComponents/Components/IndianChart.razor — a server-rendered SVG chart image
+ * (South/North style baked into the URL path). Uses react-native-svg's SvgUri rather than
+ * RN's built-in Image, which only decodes SVG on web (via the browser) - not on native
+ * iOS/Android, where it would just render blank.
  */
 export function IndianChart({
   apiUrlDirect,
@@ -19,11 +22,7 @@ export function IndianChart({
 }) {
   return (
     <ThemedView style={styles.container} type="backgroundElement">
-      <Image
-        source={{ uri: getIndianChartImageUrl(apiUrlDirect, birthTime, chartStyle) }}
-        style={styles.image}
-        resizeMode="contain"
-      />
+      <SvgUri uri={getIndianChartImageUrl(apiUrlDirect, birthTime, chartStyle)} width="100%" height="100%" />
     </ThemedView>
   );
 }
@@ -36,9 +35,5 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 500,
     alignSelf: 'center',
-  },
-  image: {
-    width: '100%',
-    height: '100%',
   },
 });

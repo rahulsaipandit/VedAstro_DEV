@@ -1,22 +1,19 @@
-import { Image, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { SvgUri } from 'react-native-svg';
 
 import { ThemedView } from './themed-view';
 import type { BirthTimeJson } from '@/lib/time';
 import { getSkyChartImageUrl } from '@/lib/api/horoscope';
 
 /**
- * Port of ViewComponents/Components/SkyChartViewer.razor — that component is nothing but an
- * <img> pointing at a server-rendered chart image, so this is a straight <Image> port, no
- * interop needed (see migration.md's Phase 3 notes on chart components with no interop lift).
+ * Port of ViewComponents/Components/SkyChartViewer.razor — a server-rendered SVG chart image.
+ * Uses react-native-svg's SvgUri rather than RN's built-in Image, which only decodes SVG on
+ * web (via the browser) - not on native iOS/Android, where it would just render blank.
  */
 export function SkyChartViewer({ apiUrlDirect, birthTime }: { apiUrlDirect: string; birthTime: BirthTimeJson }) {
   return (
     <ThemedView style={styles.container} type="backgroundElement">
-      <Image
-        source={{ uri: getSkyChartImageUrl(apiUrlDirect, birthTime) }}
-        style={styles.image}
-        resizeMode="contain"
-      />
+      <SvgUri uri={getSkyChartImageUrl(apiUrlDirect, birthTime)} width="100%" height="100%" />
     </ThemedView>
   );
 }
@@ -29,9 +26,5 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 500,
     alignSelf: 'center',
-  },
-  image: {
-    width: '100%',
-    height: '100%',
   },
 });
