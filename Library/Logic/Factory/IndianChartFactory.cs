@@ -63,6 +63,41 @@ namespace VedAstro.Library
             return getter(time).ToDictionary(kv => kv.Key, kv => kv.Value.GetSignName());
         }
 
+        /// <summary>
+        /// The divisional (varga) chart's own Lagna sign - House1's sign IN THAT SAME DIVISION,
+        /// not the D1/Rasi Lagna. Needed because house numbers in a Navamsha (or any other
+        /// divisional) chart are counted from the Navamsha Lagna, not the birth Lagna - reusing
+        /// LagnaSignName(time) for every chartType made every divisional chart show the exact
+        /// same house-number badges as the D1 chart, differing only in which planets/signs fill
+        /// each cell.
+        /// </summary>
+        private static ZodiacName GetLagnaSignForChartType(Time time, ChartType chartType)
+        {
+            var houseSignGetters = new Dictionary<ChartType, System.Func<HouseName, Time, ZodiacSign>>
+            {
+                [ChartType.RasiD1] = HouseZodiacSign,
+                [ChartType.HoraD2] = HouseHoraD2Sign,
+                [ChartType.DrekkanaD3] = HouseDrekkanaD3Sign,
+                [ChartType.ChaturthamshaD4] = HouseChaturthamshaD4Sign,
+                [ChartType.SaptamshaD7] = HouseSaptamshaD7Sign,
+                [ChartType.NavamshaD9] = HouseNavamshaD9Sign,
+                [ChartType.DashamamshaD10] = HouseDashamamshaD10Sign,
+                [ChartType.DwadashamshaD12] = HouseDwadashamshaD12Sign,
+                [ChartType.ShodashamshaD16] = HouseShodashamshaD16Sign,
+                [ChartType.VimshamshaD20] = HouseVimshamshaD20Sign,
+                [ChartType.ChaturvimshamshaD24] = HouseChaturvimshamshaD24Sign,
+                [ChartType.BhamshaD27] = HouseBhamshaD27Sign,
+                [ChartType.TrimshamshaD30] = HouseTrimshamshaD30Sign,
+                [ChartType.KhavedamshaD40] = HouseKhavedamshaD40Sign,
+                [ChartType.AkshavedamshaD45] = HouseAkshavedamshaD45Sign,
+                [ChartType.ShashtyamshaD60] = HouseShashtyamshaD60Sign,
+            };
+
+            var getter = houseSignGetters.TryGetValue(chartType, out var g) ? g : HouseZodiacSign;
+
+            return getter(HouseName.House1, time).GetSignName();
+        }
+
         /// <summary>Element (fire/earth/air/water) accent color per sign, used for the sign label text.</summary>
         private static string GetSignColor(ZodiacName sign) => sign switch
         {
@@ -127,7 +162,7 @@ namespace VedAstro.Library
         private static string GenerateIndianChartSvg(Time time, ChartType chartType, bool northIndianStyle)
         {
             var planetSigns = GetPlanetSignsForChartType(time, chartType);
-            var lagnaSign = LagnaSignName(time);
+            var lagnaSign = GetLagnaSignForChartType(time, chartType);
 
             var svg = new StringBuilder();
             svg.Append($"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {ChartSize} {ChartSize}\" font-family=\"sans-serif\" font-size=\"11\">");
