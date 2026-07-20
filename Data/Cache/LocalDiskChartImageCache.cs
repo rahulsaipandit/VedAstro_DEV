@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 namespace VedAstro.Data.Cache
 {
     /// <summary>
-    /// Local-disk replacement for the Azure Blob "cache" container (Library/Logic/AzureCache.cs).
+    /// Local-disk replacement for the Azure Blob "cache" container (Library/Logic/ChartCache.cs).
     /// Files are stored flat under <see cref="RootDirectory"/>, named exactly like the old blob
     /// name (e.g. "Travis1985-EventsChart-20010202..."). Mime type/metadata are kept in a small
     /// JSON sidecar file (".meta.json") next to the data file, mirroring what blob metadata did.

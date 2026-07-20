@@ -149,7 +149,7 @@ namespace VedAstro.Library
 
         /// <summary>
         /// SPECIAL METHOD made to allow files straight from the local-disk chart cache to be
-        /// streamed to the caller as fast as possible (was blob-backed, see AzureCache.cs).
+        /// streamed to the caller as fast as possible (was blob-backed, see ChartCache.cs).
         /// </summary>
         public static async Task SendFileToCaller(Stream fileStream, HttpContext context, string mimeType)
         {
@@ -170,7 +170,7 @@ namespace VedAstro.Library
 
         /// <summary>
         /// Streams a locally-cached file to the caller with the "Call-Status: Pass" header the
-        /// client's polling logic expects (was blob-backed, see AzureCache.cs).
+        /// client's polling logic expects (was blob-backed, see ChartCache.cs).
         /// </summary>
         public static async Task SendPassHeaderToCaller(Stream fileStream, HttpContext context, string mimeType)
         {

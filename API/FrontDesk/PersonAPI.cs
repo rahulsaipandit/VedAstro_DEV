@@ -90,7 +90,7 @@ namespace API
 
             //possible old cache of person with same id lived, so clear cache if any
             //delete data related to person (NOT USER, PERSON PROFILE)
-            await AzureCache.DeleteCacheRelatedToPerson(newPerson);
+            await ChartCache.DeleteCacheRelatedToPerson(newPerson);
 
             //creates record if no exist, update if already there
             await Repositories.Person.UpsertAsync(newPerson.ToAzureRow());
@@ -115,7 +115,7 @@ namespace API
             var personParsed = new Person(ownerId, personId, personName, birthTime, gender, notes, lifeEventList);
 
             //delete data related to person (NOT USER, PERSON PROFILE)
-            await AzureCache.DeleteCacheRelatedToPerson(personParsed);
+            await ChartCache.DeleteCacheRelatedToPerson(personParsed);
 
             //person updated based on Person ID which is immutable
             await Repositories.Person.UpsertAsync(personParsed.ToAzureRow());
@@ -170,7 +170,7 @@ namespace API
             var personToDelete = Person.FromAzureRow(personAzureRow);
 
             //# delete data related to person (NOT USER, PERSON PROFILE)
-            await AzureCache.DeleteCacheRelatedToPerson(personToDelete);
+            await ChartCache.DeleteCacheRelatedToPerson(personToDelete);
 
             //# add deleted person to recycle bin
             //await AzureTable.PersonListRecycleBin.UpsertEntityAsync(personAzureRow);

@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace VedAstro.Data.Cache
 {
     /// <summary>
-    /// Replaces Library/Logic/AzureCache.cs's blob-storage operations with a local-disk
+    /// Replaces Library/Logic/ChartCache.cs's blob-storage operations with a local-disk
     /// equivalent. Every cached item is identified by a "caller ID" / file name string,
     /// exactly like the old blob name (e.g. "Travis1985-EventsChart-20010202...").
     /// </summary>

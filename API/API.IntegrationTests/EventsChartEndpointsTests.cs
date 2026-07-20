@@ -10,7 +10,7 @@ namespace API.IntegrationTests
 {
     /// <summary>
     /// Covers API/FrontDesk/EventsChartAPI.cs's main GET /api/EventsChart/{*settingsUrl} route,
-    /// including its cache mechanism (Library/Logic/AzureCache.cs's CacheExecute):
+    /// including its cache mechanism (Library/Logic/ChartCache.cs's CacheExecute):
     /// - 1st call for a never-seen chart id: fires off background compute, replies immediately
     ///   with the "Call-Status: Running" header (no body yet).
     /// - poll same URL until the compute finishes and the chart is on disk -> "Call-Status: Pass"

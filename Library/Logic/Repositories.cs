@@ -44,7 +44,7 @@ namespace VedAstro.Library
         public static IIpAddressGeoLocationMetadataRepository IpAddressGeoLocationMetadata { get; set; }
         public static ISearchAddressGeoLocationRepository SearchAddressGeoLocation { get; set; }
 
-        /// <summary>Local-disk chart image cache (replaces AzureCache.cs's blob container).</summary>
+        /// <summary>Local-disk chart image cache (replaces ChartCache.cs's blob container).</summary>
         public static IChartImageCache ChartCache { get; set; }
 
         // ---- Chat (ChatAPI.cs) ----

@@ -9,15 +9,15 @@ using Microsoft.AspNetCore.Http;
 namespace VedAstro.Library
 {
     /// <summary>
-    /// Cache manager for chart images - was Azure-Blob-backed, now delegates to
-    /// Repositories.ChartCache (VedAstro.Data.Cache.IChartImageCache, local-disk backed).
-    /// Public method surface kept identical to the old blob version so every existing caller
-    /// (PersonAPI, EventsChartAPI, etc) keeps working unchanged, EXCEPT CacheExecute, whose
+    /// Cache manager for chart images - was Azure-Blob-backed (formerly "AzureCache"), now
+    /// delegates to Repositories.ChartCache (VedAstro.Data.Cache.IChartImageCache, local-disk
+    /// backed). Public method surface kept identical to the old blob version so every existing
+    /// caller (PersonAPI, EventsChartAPI, etc) keeps working unchanged, EXCEPT CacheExecute, whose
     /// HttpRequestData/HttpResponseData (Azure Functions Worker) parameters/return type changed
     /// to HttpContext (ASP.NET Core) since the API host moved off Azure Functions - its only
     /// caller (API/FrontDesk/EventsChartAPI.cs) was updated at the same time.
     /// </summary>
-    public static class AzureCache
+    public static class ChartCache
     {
         private static VedAstro.Data.Cache.IChartImageCache Cache => Repositories.ChartCache;
 

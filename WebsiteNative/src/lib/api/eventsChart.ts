@@ -95,7 +95,7 @@ export async function getEventsChartSvg(
 /**
  * The endpoint is job-based, not request/response: a first call kicks off server-side generation
  * and immediately replies 200 with an empty body and a `Call-Status: Running` header (see
- * AzureCache.CacheExecute in Library/Logic/AzureCache.cs — confirmed live: polling the same URL
+ * ChartCache.CacheExecute in Library/Logic/ChartCache.cs — confirmed live: polling the same URL
  * every few seconds eventually returns `Call-Status: Pass` with the full SVG body once the
  * server-side cache entry is ready). `Call-Status: Fail` means generation errored.
  */

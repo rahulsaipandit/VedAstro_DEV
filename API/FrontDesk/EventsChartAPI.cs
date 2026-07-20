@@ -19,7 +19,7 @@ namespace API
                 try
                 {
                     //get all in cache
-                    var allSavedCharts = AzureCache.ListBlobs(personId);
+                    var allSavedCharts = ChartCache.ListBlobs(personId);
 
                     var eventDataList = new JArray();
                     foreach (var chartName in allSavedCharts)
@@ -65,7 +65,7 @@ namespace API
                     };
 
                     //NOTE USING CHART ID INSTEAD OF CALLER ID, FOR CACHE SHARING BETWEEN ALL WHO COME
-                    Func<Task> cacheExecuteTask = () => AzureCache.ExecuteAndSaveToCache(generateChart, chartId);
+                    Func<Task> cacheExecuteTask = () => ChartCache.ExecuteAndSaveToCache(generateChart, chartId);
 
                     //CACHE MECHANISM
                     //NOTE: mime type must be passed in up front (rather than mutated on the response
@@ -73,7 +73,7 @@ namespace API
                     //locks response headers as soon as the body starts streaming.
                     var callerInfo = new CallerInfo("101", "101");//disabled because no space to squeeze in URL
                     callerInfo.CallerId = chartId;//NOTE OVERRIDE CALLER ID TO CHART FOR CACHE SHARING
-                    await AzureCache.CacheExecute(cacheExecuteTask, callerInfo, context, "image/svg+xml");
+                    await ChartCache.CacheExecute(cacheExecuteTask, callerInfo, context, "image/svg+xml");
                 }
                 catch (Exception e)
                 {
