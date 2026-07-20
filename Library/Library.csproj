@@ -46,6 +46,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <!-- SkyChart planet/zodiac icon SVGs, bundled in-assembly so chart rendering doesn't
+	       depend on fetching them over HTTP from the public website (see Tools.GetSvgIconLocal). -->
+	  <EmbeddedResource Include="Resources\SkyChart\*.svg" />
+	</ItemGroup>
+
+	<ItemGroup>
 	  <Content Include="XMLData\EventDataList-not-proved.xml">
 	    <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
 	    <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

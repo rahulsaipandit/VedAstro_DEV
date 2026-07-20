@@ -183,11 +183,9 @@ namespace VedAstro.Library
 
 		private static async Task<string?> GenerateZodiacRuler(double widthPx, int yAxis)
 		{
-			var svgFileUrl = $"{URL.WebStable}/images/SkyChart/zodiac-360.svg";
-
 			//no file return nothing
 			//makes it ready to be injected into another SVG
-			var svgIconHttp = await Tools.GetSvgIconHttp(svgFileUrl, 360, 30);
+			var svgIconHttp = Tools.GetSvgIconLocal("zodiac-360.svg", 360, 30);
 
 			var ratio = widthPx / 360;
 			//var startOfStar = zodiacEvent.StartX / ratio; //position in final x where zodiac starts
@@ -1721,20 +1719,20 @@ namespace VedAstro.Library
 				//get moon lunar day to 
 				var lunarDay = Calculate.LunarDay(time).GetLunarDateNumber();
 
-				//make url for specific lunar frame
-				var svgFileUrl = $"{URL.WebStable}/images/SkyChart/{planet.Name.ToString().ToLower()}-{lunarDay}.svg";
+				//make cache key for specific lunar frame
+				var iconFileName = $"{planet.Name.ToString().ToLower()}-{lunarDay}.svg";
 
 				//check if icon already gotten before
-				PlanetIconMemoryCache.TryGetValue(svgFileUrl, out svgIconHttp); //note use with lunar date
+				PlanetIconMemoryCache.TryGetValue(iconFileName, out svgIconHttp); //note use with lunar date
 
 				if (string.IsNullOrEmpty(svgIconHttp))
 				{
 
 					//makes it ready to be injected into another SVG
-					svgIconHttp = await Tools.GetSvgIconHttp(svgFileUrl, 45, 45);
+					svgIconHttp = Tools.GetSvgIconLocal(iconFileName, 45, 45);
 
 					//place in memory
-					PlanetIconMemoryCache[planet.Name.ToString()] = svgIconHttp;
+					PlanetIconMemoryCache[iconFileName] = svgIconHttp;
 				}
 				else
 				{
@@ -1756,10 +1754,10 @@ namespace VedAstro.Library
 				//if no cache then get new
 				if (string.IsNullOrEmpty(svgIconHttp))
 				{
-					var svgFileUrl = $"{URL.WebStable}/images/SkyChart/{planet.Name.ToString().ToLower()}.svg";
+					var iconFileName = $"{planet.Name.ToString().ToLower()}.svg";
 
 					//makes it ready to be injected into another SVG
-					svgIconHttp = await Tools.GetSvgIconHttp(svgFileUrl, 45, 45);
+					svgIconHttp = Tools.GetSvgIconLocal(iconFileName, 45, 45);
 
 					//place in memory
 					PlanetIconMemoryCache[planet.Name.ToString()] = svgIconHttp;

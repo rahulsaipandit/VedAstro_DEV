@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json.Linq;
 
 namespace VedAstro.Library
 {
@@ -9,7 +10,7 @@ namespace VedAstro.Library
     /// Usually a point (longitude) behind a planet.
     /// </summary>
     [Serializable()]
-    public struct Constellation
+    public struct Constellation : IToJson
     {
         //CONST FIELDS
         private const int QuarterMax = 4;
@@ -128,6 +129,15 @@ namespace VedAstro.Library
         {
             //todo can add degrees in constellation if needed
             return $"{_name} - {_quarter}";
+        }
+
+        public JObject ToJson()
+        {
+            var temp = new JObject();
+            temp["Name"] = _name.ToString();
+            temp["Quarter"] = _quarter;
+            temp["DegreesIn"] = _degreeInConstellation?.ToJson() ?? new JObject();
+            return temp;
         }
 
     }

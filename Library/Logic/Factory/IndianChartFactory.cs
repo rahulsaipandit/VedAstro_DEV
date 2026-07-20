@@ -20,10 +20,10 @@ namespace VedAstro.Library
             await SkyChartFactory.GenerateChart(time, ChartSize, ChartSize);
 
         /// <summary>Creates a Kundali chart (D1 to D20) in South Indian style. SVG image.</summary>
-        public static string SouthIndianChart(Time time, ChartType chartType) => GenerateIndianChartSvg(time, chartType, northIndianStyle: false);
+        public static string SouthIndianChart(Time time, ChartType chartType = ChartType.RasiD1) => GenerateIndianChartSvg(time, chartType, northIndianStyle: false);
 
         /// <summary>Creates a Kundali chart (D1 to D20) in North Indian style. SVG image.</summary>
-        public static string NorthIndianChart(Time time, ChartType chartType) => GenerateIndianChartSvg(time, chartType, northIndianStyle: true);
+        public static string NorthIndianChart(Time time, ChartType chartType = ChartType.RasiD1) => GenerateIndianChartSvg(time, chartType, northIndianStyle: true);
 
         private static Dictionary<PlanetName, ZodiacName> GetPlanetSignsForChartType(Time time, ChartType chartType)
         {

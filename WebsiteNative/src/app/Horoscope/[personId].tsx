@@ -80,21 +80,16 @@ export default function HoroscopeResultScreen() {
   useEffect(() => {
     if (!person) return;
     setTablesLoading(true);
-    Promise.all([
-      getHoroscopePredictions(apiUrlDirect, person.birthTime),
-      getPlanetTable(apiUrlDirect, person.birthTime, ayanamsa),
-      getHouseTable(apiUrlDirect, person.birthTime, ayanamsa),
-      getSarvashtakavargaChart(apiUrlDirect, person.birthTime, ayanamsa),
-      getBhinnashtakavargaChart(apiUrlDirect, person.birthTime, ayanamsa),
-    ])
-      .then(([preds, planets, houses, sarva, bhinna]) => {
-        setPredictions(preds);
-        setPlanetRows(planets);
-        setHouseRows(houses);
-        setSarvaRows(sarva);
-        setBhinnaRows(bhinna);
-      })
-      .finally(() => setTablesLoading(false));
+    // Each section fetches and sets its own state independently - one failing/slow section
+    // (e.g. an ashtakvarga endpoint that isn't implemented yet) must not blank out the others,
+    // which is what a shared Promise.all().then() would do on a single rejection.
+    Promise.allSettled([
+      getHoroscopePredictions(apiUrlDirect, person.birthTime).then(setPredictions),
+      getPlanetTable(apiUrlDirect, person.birthTime, ayanamsa).then(setPlanetRows),
+      getHouseTable(apiUrlDirect, person.birthTime, ayanamsa).then(setHouseRows),
+      getSarvashtakavargaChart(apiUrlDirect, person.birthTime, ayanamsa).then(setSarvaRows),
+      getBhinnashtakavargaChart(apiUrlDirect, person.birthTime, ayanamsa).then(setBhinnaRows),
+    ]).finally(() => setTablesLoading(false));
   }, [apiUrlDirect, person, ayanamsa]);
 
   const title = useMemo(() => (person ? `Horoscope | ${person.name}` : 'Horoscope'), [person]);

@@ -536,6 +536,24 @@ namespace VedAstro.Library
 
 
         /// <summary>
+        /// Gets a SkyChart planet/zodiac icon SVG bundled inside the Library assembly
+        /// (Resources/SkyChart/*.svg), instead of fetching it over HTTP - these are static
+        /// assets shipped with the app, not truly external content, so no network round-trip
+        /// (and no dependency on the public website having them deployed) is needed.
+        /// </summary>
+        public static string GetSvgIconLocal(string fileName, double width, double height)
+        {
+            var assembly = typeof(Tools).Assembly;
+            using var stream = assembly.GetManifestResourceStream($"VedAstro.Library.Resources.SkyChart.{fileName}");
+            if (stream == null) { return ""; }
+
+            using var reader = new System.IO.StreamReader(stream);
+            var svgIconString = reader.ReadToEnd();
+
+            return FormatSvgIcon(svgIconString, width, height);
+        }
+
+        /// <summary>
         /// Gets a SVG icon file direct from Illustrator, removes not needed
         /// attributes and makes it ready to be injected into another SVG
         /// no file return nothing
@@ -547,28 +565,31 @@ namespace VedAstro.Library
             var svgIconString = await Tools.GetStringFileHttp(svgFileUrl);
             if (!string.IsNullOrEmpty(svgIconString))
             {
-                //remove XML file header
-
-                var parsedIcon = Svg.SvgDocument.FromSvg<Svg.SvgDocument>(svgIconString);
-
-                //set custom width & height
-                parsedIcon.Height = (SvgUnit)height;
-                parsedIcon.Width = (SvgUnit)width;
-                //parsedIcon.ViewBox = new SvgViewBox(0, 0, (float)width, (float)height);
-
-                var final = parsedIcon.GetXML();
-
-                //<?xml version="1.0" encoding="utf-8"?>
-                final = final.Replace("<?xml version=\"1.0\" encoding=\"utf-8\"?>", "");
-                //<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-                final = final.Replace("<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">", "");
-
-                return final;
+                return FormatSvgIcon(svgIconString, width, height);
             }
 
             //if control reaches here than no file
             return "";
 
+        }
+
+        private static string FormatSvgIcon(string svgIconString, double width, double height)
+        {
+            var parsedIcon = Svg.SvgDocument.FromSvg<Svg.SvgDocument>(svgIconString);
+
+            //set custom width & height
+            parsedIcon.Height = (SvgUnit)height;
+            parsedIcon.Width = (SvgUnit)width;
+            //parsedIcon.ViewBox = new SvgViewBox(0, 0, (float)width, (float)height);
+
+            var final = parsedIcon.GetXML();
+
+            //<?xml version="1.0" encoding="utf-8"?>
+            final = final.Replace("<?xml version=\"1.0\" encoding=\"utf-8\"?>", "");
+            //<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+            final = final.Replace("<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">", "");
+
+            return final;
         }
 
         public static Image Svg2Png(string svg, int width, int height)

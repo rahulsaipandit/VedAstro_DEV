@@ -69,10 +69,14 @@ export async function getHoroscopePredictions(
   apiUrlDirect: string,
   birthTime: BirthTimeJson
 ): Promise<HoroscopePrediction[]> {
-  const response = await fetch(`${apiUrlDirect}/Calculate/HoroscopePredictions${timeToUrl(birthTime)}`);
-  const json = await response.json();
-  if (json.Status !== 'Pass') return [];
-  return (json.Payload as any[]).map(predictionFromJson);
+  try {
+    const response = await fetch(`${apiUrlDirect}/Calculate/HoroscopePredictions${timeToUrl(birthTime)}`);
+    const json = await response.json();
+    if (json.Status !== 'Pass') return [];
+    return (json.Payload as any[]).map(predictionFromJson);
+  } catch {
+    return [];
+  }
 }
 
 /** One GET to a Calculate/{name} endpoint taking (PlanetName|HouseName, Time, Ayanamsa). */
@@ -96,21 +100,41 @@ async function callCalculate(
   }
 }
 
+/** Constellation.ToJson() shape: {Name, Quarter, DegreesIn:{...}} — render as "Mrigasira - 3". */
+function isConstellationShape(value: object): value is { Name: string; Quarter: number } {
+  return 'Name' in value && 'Quarter' in value;
+}
+
+/** ZodiacSign.ToJson() shape: {Name, DegreesIn:{DegreeMinuteSecond,...}} — render as "Gemini 2° 0' 57". */
+function isZodiacSignShape(value: object): value is { Name: string; DegreesIn: { DegreeMinuteSecond: string } } {
+  return 'Name' in value && 'DegreesIn' in value && typeof (value as any).DegreesIn?.DegreeMinuteSecond === 'string';
+}
+
 function formatPayloadValue(value: unknown): string {
   if (value == null) return '—';
   if (Array.isArray(value)) return value.map(formatPayloadValue).join(', ');
-  if (typeof value === 'object') return Object.values(value as object).map(String).join(', ');
+  if (typeof value === 'object') {
+    if (isConstellationShape(value as object)) {
+      const v = value as { Name: string; Quarter: number };
+      return `${v.Name} - ${v.Quarter}`;
+    }
+    if (isZodiacSignShape(value as object)) {
+      const v = value as { Name: string; DegreesIn: { DegreeMinuteSecond: string } };
+      return `${v.Name} ${v.DegreesIn.DegreeMinuteSecond}`;
+    }
+    return Object.values(value as object).map(String).join(', ');
+  }
   return formatName(String(value));
 }
 
 /** Columns matching Horoscope.razor's `planetColumns` (the 6 Enabled ones). */
 export const PLANET_TABLE_COLUMNS = [
-  { endpoint: 'PlanetZodiacSign', name: 'Sign' },
-  { endpoint: 'PlanetConstellation', name: 'Constellation' },
-  { endpoint: 'HousePlanetOccupies', name: 'Occupies' },
-  { endpoint: 'HousesOwnedByPlanet', name: 'Owns' },
-  { endpoint: 'PlanetLordOfZodiacSign', name: 'Sign Lord' },
-  { endpoint: 'PlanetLordOfConstellation', name: 'Const. Lord' },
+  { endpoint: 'PlanetZodiacSign', name: 'Planet Rasi D1 Sign' },
+  { endpoint: 'PlanetConstellation', name: 'Planet Constellation' },
+  { endpoint: 'HousePlanetOccupies', name: 'House Planet Occupies Based On Sign' },
+  { endpoint: 'HousesOwnedByPlanet', name: 'Houses Owned By Planet' },
+  { endpoint: 'PlanetLordOfZodiacSign', name: 'Planet Lord Of Zodiac Sign' },
+  { endpoint: 'PlanetLordOfConstellation', name: 'Planet Lord Of Constellation' },
 ] as const;
 
 export type PlanetTableRow = { planet: PlanetName; values: string[] };
@@ -131,19 +155,16 @@ export async function getPlanetTable(
 }
 
 /**
- * Columns matching Horoscope.razor's `houseColumns` Enabled set. "LordOfConstellation" is
- * skipped, same as the original (Enabled = false there). "Aspects"/PlanetsAspectingHouse is kept
- * even though no Calculate.PlanetsAspectingHouse(HouseName,Time) method actually exists in
- * Library today (only a documentation-only entry in OpenAPIStaticTable.cs, not a real
- * implementation) — callCalculate degrades to "—" per-cell on a failed/missing endpoint rather
- * than crashing the whole table, so this is a known gap rather than a silent one.
+ * Columns matching Horoscope.razor's `houseColumns` Enabled set, plus HouseConstellationLord
+ * (Library/Logic/Calculate/Core.cs's HouseConstellationLord(HouseName,Time)).
  */
 export const HOUSE_TABLE_COLUMNS = [
-  { endpoint: 'HouseZodiacSign', name: 'Sign' },
-  { endpoint: 'HouseConstellation', name: 'Constellation' },
-  { endpoint: 'PlanetsInHouse', name: 'Planets In' },
-  { endpoint: 'LordOfHouse', name: 'Sign Lord' },
-  { endpoint: 'PlanetsAspectingHouse', name: 'Aspects' },
+  { endpoint: 'HouseZodiacSign', name: 'House Rasi Sign' },
+  { endpoint: 'HouseConstellation', name: 'House Constellation' },
+  { endpoint: 'PlanetsInHouse', name: 'Planets In House Based On Sign' },
+  { endpoint: 'LordOfHouse', name: 'Lord Of House' },
+  { endpoint: 'HouseConstellationLord', name: 'House Constellation Lord' },
+  { endpoint: 'PlanetsAspectingHouse', name: 'Planets Aspecting House' },
 ] as const;
 
 export type HouseTableRow = { house: HouseNameStr; values: string[] };
@@ -172,20 +193,24 @@ async function fetchAshtakavargaChart(
   birthTime: BirthTimeJson,
   ayanamsa: string
 ): Promise<AshtakvargaRow[]> {
-  const url = `${apiUrlDirect}/Calculate/${endpoint}${timeToUrl(birthTime)}Ayanamsa/${ayanamsa}`;
-  const response = await fetch(url);
-  const json = await response.json();
-  if (json.Status !== 'Pass') return [];
-  const payload = json.Payload?.[endpoint] ?? json.Payload;
-  return Object.entries(payload as Record<string, any>).map(([key, value]) => {
-    // SarvashtakavargaChart rows are {Total, Rows: number[12]}; BhinnashtakavargaChart rows are
-    // a plain {ZodiacName: points} map with no precomputed total.
-    if (value && typeof value === 'object' && Array.isArray(value.Rows)) {
-      return { key, points: value.Rows, total: value.Total };
-    }
-    const points = Object.values(value as Record<string, number>);
-    return { key, points, total: points.reduce((a, b) => a + b, 0) };
-  });
+  try {
+    const url = `${apiUrlDirect}/Calculate/${endpoint}${timeToUrl(birthTime)}Ayanamsa/${ayanamsa}`;
+    const response = await fetch(url);
+    const json = await response.json();
+    if (json.Status !== 'Pass') return [];
+    const payload = json.Payload?.[endpoint] ?? json.Payload;
+    return Object.entries(payload as Record<string, any>).map(([key, value]) => {
+      // SarvashtakavargaChart rows are {Total, Rows: number[12]}; BhinnashtakavargaChart rows are
+      // a plain {ZodiacName: points} map with no precomputed total.
+      if (value && typeof value === 'object' && Array.isArray(value.Rows)) {
+        return { key, points: value.Rows, total: value.Total };
+      }
+      const points = Object.values(value as Record<string, number>);
+      return { key, points, total: points.reduce((a, b) => a + b, 0) };
+    });
+  } catch {
+    return [];
+  }
 }
 
 /** Calculate/SarvashtakavargaChart/{timeUrl}Ayanamsa/{ayanamsa} — one row per planet + Sarvashtakavarga total. */
