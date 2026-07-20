@@ -122,6 +122,9 @@ export default function HoroscopeResultScreen() {
             selected={ayanamsa}
             onSelect={setAyanamsa}
           />
+        </ThemedView>
+
+        <ThemedView style={styles.optionsRow}>
           <ChipGroup
             label="Chart Style"
             options={['South', 'North']}

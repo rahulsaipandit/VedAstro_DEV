@@ -88,7 +88,7 @@ async function callCalculate(
   birthTime: BirthTimeJson,
   ayanamsa: string
 ): Promise<string> {
-  const url = `${apiUrlDirect}/Calculate/${endpoint}/${subjectParamName}/${subjectValue}${timeToUrl(birthTime)}Ayanamsa/${ayanamsa}`;
+  const url = `${apiUrlDirect}/Calculate/${endpoint}/${subjectParamName}/${subjectValue}${timeToUrl(birthTime)}/Ayanamsa/${ayanamsa}`;
   try {
     const response = await fetch(url);
     const json = await response.json();
@@ -194,7 +194,7 @@ async function fetchAshtakavargaChart(
   ayanamsa: string
 ): Promise<AshtakvargaRow[]> {
   try {
-    const url = `${apiUrlDirect}/Calculate/${endpoint}${timeToUrl(birthTime)}Ayanamsa/${ayanamsa}`;
+    const url = `${apiUrlDirect}/Calculate/${endpoint}${timeToUrl(birthTime)}/Ayanamsa/${ayanamsa}`;
     const response = await fetch(url);
     const json = await response.json();
     if (json.Status !== 'Pass') return [];
@@ -229,10 +229,13 @@ export function getSkyChartImageUrl(apiUrlDirect: string, birthTime: BirthTimeJs
 }
 
 /**
- * Calculate/{chartStyle}IndianChart{timeUrl}ChartType/{chartType}Ayanamsa/{ayanamsa} —
+ * Calculate/{chartStyle}IndianChart{timeUrl}/ChartType/{chartType}/Ayanamsa/{ayanamsa} —
  * server-rendered image (see IndianChart.razor). `Ayanamsa/{value}` is a global URL convention
  * (see API/FrontDesk/OpenAPI.cs's ParseAndSetAyanamsa) understood by every Calculate/* endpoint,
- * not just this one - it gets stripped out and applied before the call is dispatched.
+ * not just this one - it gets stripped out and applied before the call is dispatched. Every
+ * segment needs its own leading "/" - ParseAndSetAyanamsa finds "Ayanamsa" by splitting the URL
+ * on "/" and looking for an exact "Ayanamsa" segment, so running it into the previous value
+ * (e.g. "...RasiD1Ayanamsa/Raman") makes it invisible and breaks the whole request.
  */
 export function getIndianChartImageUrl(
   apiUrlDirect: string,
@@ -241,5 +244,5 @@ export function getIndianChartImageUrl(
   chartType: string = 'RasiD1',
   ayanamsa: string = DEFAULT_AYANAMSA
 ): string {
-  return `${apiUrlDirect}/Calculate/${chartStyle}IndianChart${timeToUrl(birthTime)}ChartType/${chartType}Ayanamsa/${ayanamsa}`;
+  return `${apiUrlDirect}/Calculate/${chartStyle}IndianChart${timeToUrl(birthTime)}/ChartType/${chartType}/Ayanamsa/${ayanamsa}`;
 }
