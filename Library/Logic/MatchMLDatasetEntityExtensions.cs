@@ -104,5 +104,10 @@ namespace VedAstro.Library
 
             return newQueryEmbedsgg;
         }
+
+        public static double[] GetEmbeddingsArray(this MarriageTrainingDatasetEntity row)
+        {
+            return Tools.ConvertStringToDoubleArray(row.Embeddings);
+        }
     }
 }

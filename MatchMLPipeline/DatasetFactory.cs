@@ -32,6 +32,7 @@ public static class DatasetFactory
     public static readonly IMarriageInfoDatasetRepository marriageInfoDatasetRepo = new MarriageInfoDatasetRepository(dbContextFactory);
     public static readonly IBodyInfoDatasetRepository bodyInfoDatasetRepo = new BodyInfoDatasetRepository(dbContextFactory);
     public static readonly IPersonNameEmbeddingsRepository personNameEmbeddingsRepo = new PersonNameEmbeddingsRepository(dbContextFactory);
+    public static readonly IMarriageTrainingDatasetRepository marriageTrainingDatasetRepo = new MarriageTrainingDatasetRepository(dbContextFactory);
 
     /// <summary>
     /// Connection string comes from this project's user-secrets (dotnet user-secrets set
@@ -260,7 +261,9 @@ public static class DatasetFactory
     }
 
     /// <summary>
-    /// creates dataset for making marriage ml predictions and saves to Azure Tables
+    /// creates dataset for making marriage ml predictions and saves via marriageTrainingDatasetRepo.
+    /// Still unimplemented (was unimplemented before this migration too) - the steps below were
+    /// never filled in, so this always throws.
     /// </summary>
     public static Task<bool> GenerateMarriageKutaDataset()
     {

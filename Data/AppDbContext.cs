@@ -47,6 +47,7 @@ namespace VedAstro.Data
         public DbSet<MarriageInfoDatasetEntity> MarriageInfoDataset => Set<MarriageInfoDatasetEntity>();
         public DbSet<BodyInfoDatasetEntity> BodyInfoDataset => Set<BodyInfoDatasetEntity>();
         public DbSet<PersonNameEmbeddingsEntity> PersonNameEmbeddings => Set<PersonNameEmbeddingsEntity>();
+        public DbSet<MarriageTrainingDatasetEntity> MarriageTrainingDataset => Set<MarriageTrainingDatasetEntity>();
 
         // Chat history / feedback rating (ChatAPI.cs) and the experimental Cohere-embeddings
         // preset-question search index - previously a no-op in-memory stub, now real tables.
@@ -91,6 +92,7 @@ namespace VedAstro.Data
             ConfigureKeyedTable<MarriageInfoDatasetEntity>(modelBuilder, "marriage_info_dataset");
             ConfigureKeyedTable<BodyInfoDatasetEntity>(modelBuilder, "body_info_dataset");
             ConfigureKeyedTable<PersonNameEmbeddingsEntity>(modelBuilder, "person_name_embeddings");
+            ConfigureKeyedTable<MarriageTrainingDatasetEntity>(modelBuilder, "marriage_training_dataset");
 
             ConfigureKeyedTable<ChatMessageEntity>(modelBuilder, "chat_message");
             ConfigureKeyedTable<PresetQuestionEmbeddingsEntity>(modelBuilder, "preset_question_embeddings");

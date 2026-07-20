@@ -176,6 +176,12 @@ namespace VedAstro.Data.Repositories
         public PersonNameEmbeddingsRepository(IDbContextFactory<AppDbContext> contextFactory) : base(contextFactory) { }
     }
 
+    public interface IMarriageTrainingDatasetRepository : IKeyedRepository<MarriageTrainingDatasetEntity> { }
+    public class MarriageTrainingDatasetRepository : EfKeyedRepository<MarriageTrainingDatasetEntity>, IMarriageTrainingDatasetRepository
+    {
+        public MarriageTrainingDatasetRepository(IDbContextFactory<AppDbContext> contextFactory) : base(contextFactory) { }
+    }
+
     // ---- Chat (ChatAPI.cs) - history/feedback rating + experimental preset-question search index ----
 
     public interface IChatMessageRepository : IKeyedRepository<ChatMessageEntity> { }

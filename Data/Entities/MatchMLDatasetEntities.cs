@@ -66,4 +66,32 @@ namespace VedAstro.Library
 
         public DateTimeOffset? Timestamp { get; set; }
     }
+
+    /// <summary>
+    /// Represents the data in 1 row of the marriage-training dataset table (ML training/prediction
+    /// rows for the matchmaking classifier - was Library/Data/AzureTable/MarriageTrainingDatasetEntity.cs).
+    /// </summary>
+    public class MarriageTrainingDatasetEntity : IPartitionRowKeyEntity
+    {
+        //NEEDED BY TABLE
+        public string PartitionKey { get; set; }
+
+        public string RowKey { get; set; } = "";
+
+        public string Outcome { get; set; }
+        public string MarriageDate { get; set; }
+        public string ChildrenData { get; set; }
+        public string DivorceData { get; set; }
+        public string DivorceDate { get; set; }
+        public string MalePersonId { get; set; }
+        public string FemalePersonId { get; set; }
+        public string Embeddings { get; set; }
+        public double KutaScore { get; set; }
+        public double MarriageDuration { get; set; }
+
+        /// <summary>
+        /// Time of change
+        /// </summary>
+        public DateTimeOffset? Timestamp { get; set; }
+    }
 }
