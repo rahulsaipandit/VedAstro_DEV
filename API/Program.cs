@@ -33,10 +33,13 @@ namespace API
                 }
             }
 
-            // Kestrel: bind to the same port Website/Localhost_Setup.md's "Local API" toggle expects
+            // Kestrel: bind to the same port Website/Localhost_Setup.md's "Local API" toggle expects.
+            // ListenAnyIP (not ListenLocalhost) so this also works from inside a container (API/Dockerfile)
+            // where the request arrives over the container's external interface, not loopback -
+            // still reachable via localhost:7071 for local dev either way.
             builder.WebHost.ConfigureKestrel(options =>
             {
-                options.ListenLocalhost(7071);
+                options.ListenAnyIP(7071);
             });
 
             // ---- DI registration ----

@@ -35,19 +35,20 @@ namespace Desktop_Windows
         private void relaunchButton_Click(object sender, EventArgs e)
         {
 
-            StartAzureFunctionsCli();
+            StartApiServer();
 
         }
 
-        private void StartAzureFunctionsCli()
+        private void StartApiServer()
         {
+            //the API is a plain ASP.NET Core Kestrel app now, not an Azure Functions host, so it's
+            //just run directly (was "Azure.Functions.Cli/func.exe start" against an api-build/ folder)
             string apiBuildPath = Path.Combine(Application.StartupPath, "api-build");
-            string funcExecPath = Path.Combine(Application.StartupPath, "Azure.Functions.Cli", "func.exe");
+            string apiExecPath = Path.Combine(apiBuildPath, "API.exe");
 
             _process = new Process();
             _process.StartInfo.WorkingDirectory = apiBuildPath; // Set working directory to apiBuildPath
-            _process.StartInfo.FileName = funcExecPath;
-            _process.StartInfo.Arguments = $"start";
+            _process.StartInfo.FileName = apiExecPath;
             _process.StartInfo.RedirectStandardOutput = true;
             _process.StartInfo.RedirectStandardError = true;
             _process.StartInfo.CreateNoWindow = true;

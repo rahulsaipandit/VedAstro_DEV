@@ -21,7 +21,7 @@ namespace APILauncher
             Console.WriteLine("⏱ T-minus countdown");
             Console.WriteLine("✅ Go/No-Go Poll");
             Console.WriteLine(".NET 8 Runtime go!");
-            Console.WriteLine("Function Core Tools go!");
+            Console.WriteLine("API build go!");
             Console.WriteLine("🚦 All systems are go");
             Console.WriteLine("🔑 Astronauts, start your engines");
             Console.WriteLine("💨 Main engine start ");
@@ -34,19 +34,13 @@ namespace APILauncher
             //check if .NET is installed, else install it first
             if (!IsDotNetInstalled()) { InstallDotNet(); }
 
-            // set file permissions
-            //Console.WriteLine("🔐 Setting file permissions...");
-            //string[] commands = new string[]
-            //{
-            //    "chmod +x ./Azure.Functions.Cli/func",
-            //    "chmod +x ./api-build/API",
-            //};
-
-            //foreach (var command in commands)
-            //{
-            //    ExecuteCommand(command);
-            //}
-
+            // the self-contained API executable needs +x permission on mac/linux (Windows
+            // ignores chmod-style calls, so only do this off Windows)
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                Console.WriteLine("🔐 Setting file permissions...");
+                ExecuteCommand("chmod +x ./api-build/API");
+            }
 
             await StartAPIServer();
 
@@ -154,8 +148,11 @@ namespace APILauncher
 
             try
             {
-                //starts func located inside "api-build/Azure.Functions.Cli/func"
-                ProcessStartInfo processInfo = new ProcessStartInfo("Azure.Functions.Cli/func", @$"start --no-build --verbose")
+                //starts the self-contained API executable published to "api-build/" alongside this
+                //launcher (was "Azure.Functions.Cli/func start" - the API is a plain ASP.NET Core
+                //Kestrel app now, not an Azure Functions host, so it's just run directly, no CLI needed)
+                var apiExecName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "API.exe" : "API";
+                ProcessStartInfo processInfo = new ProcessStartInfo($"api-build/{apiExecName}", "")
                 {
                     RedirectStandardError = true,
                     RedirectStandardInput = true,
