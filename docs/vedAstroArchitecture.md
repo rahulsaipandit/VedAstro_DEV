@@ -568,6 +568,61 @@ web console warning, not a native crash) but noisy enough to surface as an error
 web dev. Removed at the source, same fix as gap #16: these attributes were only ever JS-selector
 hooks, nothing in the SVG's own `style=""` attributes depends on them.
 
+### Match / Compatibility Reports (MatchChecker → WebsiteNative)
+
+The Vedic compatibility ("Kuta"/Ashtakoot) feature was audited end-to-end this session and
+confirmed **fully ported**, with the calculation core untouched: `MatchReportFactory.cs`
+(`Library/Logic/Factory/MatchReportFactory.cs`) already implemented the full classical
+Ashtakoot/Guna-Milan calculators (`Mahendra`, `NadiKuta`, `GunaKuta`, `Varna`, `YoniKuta`, `Vedha`,
+`VasyaKuta`, `DinaKuta`, `RasiKuta`, `RajjuKuta`, `StreeDeergaKuta`, `GrahaMaitri`, plus the
+neutralization/exception rules and the 36-point-to-percentage `CalculateTotalPoints`) before the
+migration and needed no changes — only its callers moved from Azure Functions/Azure Table Storage
+to the new stack.
+
+`API/FrontDesk/MatchAPI.cs` exposes four Postgres-backed endpoints, wired into `API/Program.cs`'s
+`MapMatchEndpoints`:
+
+- `GET /api/FindMatch/PersonId/{personId}` — cross-checks one person against every saved person
+  in the database, filters to `KutaScore >= 70`, returns a `PersonKutaScore` list. Ports the old
+  `Website_Mobile/MatchFinder.html`/`MatchFinder.js` "search the whole database for matches"
+  feature.
+- `GET /api/GetMatchReport/MaleId/{maleId}/FemaleId/{femaleId}` — one-on-one report via
+  `MatchReportFactory.GetNewMatchReport`, the direct successor of the old
+  `Calculate/MatchReport/{maleBirthTimeUrl}{femaleBirthTimeUrl}` endpoint used by
+  `Website_Mobile/js/MatchChecker.js`'s `OnClickCalculateMatch()`. **One deliberate shape change**:
+  the old endpoint took two raw birth-time URL segments (`BirthTime.ToUrl()`) directly, so a
+  compatibility check never required either person to be a saved record; the new endpoint looks
+  both people up by ID (`Tools.GetPersonById`), so a "quick check without saving either person"
+  path no longer exists server-side. Worth confirming with the team whether this was an
+  intentional scope narrowing.
+- `POST /api/SaveMatchReport` / `GET /api/GetMatchReportList/OwnerId/{ownerId}` — **new**
+  persistence, backed by `Data/Entities/SavedMatchReportEntity.cs` (migration
+  `AddSavedMatchReportTable`). This "saved matches" capability did not exist server-side in the
+  old Blazor/Azure-Functions site at all — it's a net-new feature added during the migration, not
+  a straight port.
+
+All four are covered by `API/API.IntegrationTests/MatchEndpointsTests.cs` (FindMatch golden path,
+GetMatchReport golden path, SaveMatchReport → GetMatchReportList round-trip including
+re-save-updates-notes behavior).
+
+On the frontend, `WebsiteNative/src/app/Match/` mirrors the old pages 1:1: `index.tsx` (person
+selection + validation, porting `Website/Pages/Calculator/Match/Index.razor` and
+`Website_Mobile/MatchChecker.html`'s two `PersonSelectorBox` widgets, including the same "Marriage
+Karma"/"Imagine Perfect Marriages" prose carried over from the old SEO page
+`Website/wwwroot/seo/Match/index.html`), `Finder.tsx` (database-wide search — intentionally drops
+the old page's dead, unreachable `OnClickSearchButtonOLD` no-login email-capture fallback, since
+it was unreachable code even before the migration), `Report/[maleId]/[femaleId].tsx` (easy-summary
++ advanced Kuta-table report, the equivalent of `easyMatchReportHolder`/`advancedMatchReportHolder`
+in the old HTML), and `Saved.tsx` (new screen for the new saved-reports feature).
+`WebsiteNative/src/lib/api/match.ts` is the typed client wrapping all four endpoints, with inline
+comments cross-referencing which old feature each call corresponds to. `Website/Pages/Calculator/
+Match/*.razor` (the Blazor site) already targets these same new endpoints
+(`ViewComponents/Code/API/MatchTools.cs`), so it isn't stuck on the old Azure API either.
+
+One minor, content-only gap: `Website_Mobile/MatchCheckerExplanation.html` (the old detailed "16
+astrological factors" explainer page, linked from the old MatchChecker page) has no standalone
+equivalent in `WebsiteNative` — only its summary text made it into `index.tsx`'s info box.
+
 ## Geographical Location and Timezone Management
 
 ## Diagram 7
@@ -761,6 +816,26 @@ and ILGPU-based GPU acceleration are unchanged. **One Azure dependency remains**
 calls still hit an Azure-hosted inference endpoint
 (`https://Meta-Llama-3-70B-Instruct-*.inference.ai.azure.com`) — this is an external inference
 API, not the storage layer the migration targeted, so it was left as-is.
+
+**Why `MatchMLPipeline` should stay a separate, offline tool rather than being wired into the
+live API:** it solves a genuinely different problem than the live Match feature (see
+[Match / Compatibility Reports](#match--compatibility-reports-matchchecker--websitenative)
+above). `MatchReportFactory` (called from `API/FrontDesk/MatchAPI.cs` on every request) computes
+a deterministic, rules-based Ashtakoot/Guna-Milan Kuta score — no ML, no training data, no model
+loading. `MatchMLPipeline`'s `NearestCentroidClassifier`, by contrast, is a statistical
+marriage-*outcome* predictor (e.g. `ncc.LoadFromTable("marriagePredictMK1")` in `Program.cs`)
+trained on LLM-extracted person/marriage/body-info datasets — an experimental, unvalidated
+feature, not a replacement for or component of the Kuta calculation. Confirmed during this
+session's audit: nothing in `API/`, `Website/`, or `Library/` (aside from the JSON-helper
+extension methods in `Library/Logic/MatchMLDatasetEntityExtensions.cs`) references
+`MatchMLPipeline`, `DatasetFactory`, or `NearestCentroidClassifier` — it is not on the live
+request path today. Wiring a prediction endpoint into the API would mean committing to running
+and maintaining an LLM data-extraction pipeline plus periodically retraining/reloading a model in
+production, for a feature whose prediction quality hasn't been validated end-to-end. Keeping it
+as a standalone console tool (`Main`/`Main2`/`Main5` in `Program.cs`) that writes to the same
+Postgres database is the right shape until there's a concrete product decision to graduate it
+into a live, user-facing prediction — at which point it would need its own dedicated API endpoint
+and explicit product scoping, not an incidental wire-up.
 
 **`HuggingFace/`** (planetary-data pull/push to the Hugging Face Hub) and **`DocToEmbeddings/`**
 (PDF text extraction and hierarchical chunking) — both untouched, and never had an Azure
