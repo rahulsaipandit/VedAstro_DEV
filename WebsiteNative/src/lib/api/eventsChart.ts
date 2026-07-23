@@ -119,3 +119,117 @@ async function pollForSvg(url: string, maxAttempts = 30, intervalMs = 2000): Pro
 function stripScripts(svg: string): string {
   return svg.replace(/<script[\s\S]*?(?:\/>|<\/script>)/gi, '');
 }
+
+/** One life-event <rect> as emitted by EventsChartFactory.GenerateMultipleRowSvg (Library/Logic/Factory/EventsChartFactory.cs). */
+export type EventRect = {
+  x: number;
+  width: number;
+  eventName: string;
+  eventDescription: string;
+  natureScore: number;
+  /** [{ category: 'Family', nature: 'Good' | 'Bad', weight: number }], parsed from the "summarycategories" attribute. */
+  categories: { category: string; nature: 'Good' | 'Bad'; weight: number }[];
+  age: string;
+  stdTime: string;
+};
+
+const RECT_ATTR_REGEX = /<rect\b[^>]*\beventname="([^"]*)"[^>]*\/>/gi;
+function attr(rectXml: string, name: string): string {
+  const match = new RegExp(`\\b${name}="([^"]*)"`, 'i').exec(rectXml);
+  return match ? match[1] : '';
+}
+
+/**
+ * Extracts every life-event data-rect out of the raw chart SVG (attributes documented at the
+ * emission site, EventsChartFactory.cs's GenerateMultipleRowSvg) — this is the same per-event data
+ * the old EventsChart.js's tippy tooltips read client-side, now used to drive the Smart Summary
+ * hover/touch tooltip instead of a DOM-dependent JS library.
+ */
+export function parseEventRects(svg: string): EventRect[] {
+  const rects: EventRect[] = [];
+  let match: RegExpExecArray | null;
+  RECT_ATTR_REGEX.lastIndex = 0;
+  while ((match = RECT_ATTR_REGEX.exec(svg))) {
+    const rectXml = match[0];
+    const categoriesRaw = attr(rectXml, 'summarycategories');
+    const categories = categoriesRaw
+      ? categoriesRaw.split(',').map((part) => {
+          const [category, nature, weight] = part.split(':');
+          return { category, nature: nature as 'Good' | 'Bad', weight: parseFloat(weight) || 0 };
+        })
+      : [];
+
+    rects.push({
+      x: parseFloat(attr(rectXml, 'x')) || 0,
+      width: parseFloat(attr(rectXml, 'width')) || 0,
+      eventName: match[1],
+      eventDescription: attr(rectXml, 'eventdescription'),
+      natureScore: parseFloat(attr(rectXml, 'naturescore')) || 0,
+      categories,
+      age: attr(rectXml, 'age'),
+      stdTime: attr(rectXml, 'stdtime'),
+    });
+  }
+  return rects;
+}
+
+const CATEGORY_PHRASES: Record<string, { good: string; bad: string }> = {
+  Mind: { good: 'mental clarity', bad: 'mental stress' },
+  Studies: { good: 'academic success', bad: 'academic struggles' },
+  Family: { good: 'family growth', bad: 'family tension' },
+  Money: { good: 'financial gains', bad: 'financial setbacks' },
+  Love: { good: 'romantic success', bad: 'relationship challenges' },
+  Body: { good: 'good health', bad: 'health concerns' },
+};
+
+/** Joins ["a", "b", "c"] into "a, b, and c" (Oxford comma), or "a and b" for two, or "a" for one. */
+function joinPhrases(phrases: string[]): string {
+  if (phrases.length === 0) return '';
+  if (phrases.length === 1) return phrases[0];
+  if (phrases.length === 2) return `${phrases[0]} and ${phrases[1]}`;
+  return `${phrases.slice(0, -1).join(', ')}, and ${phrases[phrases.length - 1]}`;
+}
+
+/**
+ * Synthesizes a one-line "Smart Summary" sentence (see LifePredictor screenshot) from the
+ * SpecializedSummary categories of every event active at a hovered/touched x position — mirrors
+ * the aggregation the old EventsChart.js did client-side per column, but condensed into a single
+ * readable sentence instead of a per-event legend list.
+ */
+export function buildSmartSummary(rectsAtPosition: EventRect[]): string {
+  const weightByCategory = new Map<string, { good: number; bad: number }>();
+  for (const rect of rectsAtPosition) {
+    for (const { category, nature, weight } of rect.categories) {
+      const entry = weightByCategory.get(category) ?? { good: 0, bad: 0 };
+      const effectiveWeight = weight > 0 ? weight : 1;
+      if (nature === 'Good') entry.good += effectiveWeight;
+      else if (nature === 'Bad') entry.bad += effectiveWeight;
+      weightByCategory.set(category, entry);
+    }
+  }
+
+  const positives: { phrase: string; weight: number }[] = [];
+  const negatives: { phrase: string; weight: number }[] = [];
+  for (const [category, { good, bad }] of weightByCategory) {
+    const phrases = CATEGORY_PHRASES[category];
+    if (!phrases) continue;
+    if (good > bad) positives.push({ phrase: phrases.good, weight: good });
+    else if (bad > good) negatives.push({ phrase: phrases.bad, weight: bad });
+  }
+  positives.sort((a, b) => b.weight - a.weight);
+  negatives.sort((a, b) => b.weight - a.weight);
+
+  const positivePhrases = joinPhrases(positives.slice(0, 3).map((p) => p.phrase));
+  const negativePhrases = joinPhrases(negatives.slice(0, 2).map((p) => p.phrase));
+
+  if (positivePhrases && negativePhrases) {
+    return `Positive ${positivePhrases}, despite ${negativePhrases}.`;
+  }
+  if (positivePhrases) {
+    return `Positive ${positivePhrases} ahead.`;
+  }
+  if (negativePhrases) {
+    return `Watch out for ${negativePhrases}.`;
+  }
+  return 'A quiet, neutral period.';
+}

@@ -507,6 +507,67 @@ same-row planet icons to render on top of each other.
 GIF encoding/decoding (`Library/Logic/GIFConverter/*.cs` — `AnimatedGifEncoder`, `NeuQuant`,
 `LZWEncoder`, `GifDecoder`) is unchanged.
 
+### Life Events Chart & Smart Summary Tooltip
+
+`EventsChartFactory.cs` generates the horizontal life-event timeline used by `LifePredictor` and
+`GoodTimeFinder` (`GET /api/EventsChart/{specs}`, `API/FrontDesk/EventsChartAPI.cs`) as one large
+SVG string — a stack of per-Dasa-level event rows, plus a bottom "Smart Summary" color row
+(`GenerateSummaryRow`) whose per-pixel-column fill color is a red→green gradient of that column's
+combined `NatureScore`.
+
+In the original Blazor site, hovering the mouse over this chart drove an interactive tooltip via
+a hand-rolled client-side library (`Website/wwwroot/js/EventsChart.js`, since deleted from the
+repo — recovered from git history for this work): a vertical cursor line followed the mouse,
+and a legend box listing every event active at that x-position was cloned from an SVG template
+and populated by reading data attributes (`eventname`, `eventdescription`, `naturescore`, `age`,
+`stdtime`) directly off the `<rect>` elements at that column, found via
+`$(ID.EventChartHolder).children().find('[x=' + mouseRoundedX + ']')`. **This entire interactive
+layer was dropped, not ported**, when `WebsiteNative` switched to rendering the same raw SVG
+string via `react-native-svg`'s `SvgXml` — `SvgXml` renders static markup only, it has no DOM to
+attach jQuery/tippy.js event handlers to, and there is no direct RN equivalent of either library.
+The chart was visible but inert until this gap was closed:
+
+- **Backend addition** — `foundEvent`'s existing `SpecializedSummary` (Mind/Studies/Family/Money/
+  Love/Body, each an `EventNature` + `Weight`, populated per-event at static-data-generation time
+  in `EventDataListStatic.cs`/`HoroscopeDataListStatic.cs` — see
+  [Astrological Data Structures](#astrological-data-structures)) was never actually surfaced
+  anywhere in the chart output, in either the old or new frontend. `EventsChartFactory.cs`'s
+  `GenerateMultipleRowSvg` now also emits it per event-rect as a new `summarycategories`
+  attribute (`FormatSummaryCategories`), a compact `"Category:Nature:Weight"` CSV (e.g.
+  `"Family:Good:2,Money:Good:1,Body:Bad:1"`, Neutral/Empty categories omitted) alongside the
+  pre-existing `eventname`/`eventdescription`/`naturescore`/`age`/`stdtime` attributes. This
+  required no new endpoint and no LLM call at request time — the data was already computed, just
+  never wired to the wire format.
+- **Frontend re-implementation** (`WebsiteNative/src/lib/api/eventsChart.ts`,
+  `src/components/EventsChartViewer.tsx`) — since there's no DOM to query, `parseEventRects()`
+  regex-parses every `<rect eventname="..." .../>` out of the raw SVG string once per fetch (the
+  same per-event data the old jQuery selector read, just off a string instead of a live DOM).
+  `buildSmartSummary()` aggregates the `summarycategories` of every rect whose x-span contains
+  the cursor position into one templated sentence (positive categories → phrases like "family
+  growth"/"financial gains", weighted by summed `Weight`, joined with an Oxford comma; negative
+  categories appended as a "despite ..." clause) — a condensed single-sentence replacement for
+  the old per-event legend list, not a per-event enumeration.
+  `EventsChartViewer.tsx` overlays a transparent gesture-capture `View` on top of `SvgXml` inside
+  the horizontally-scrolling content (so pointer/touch coordinates land directly in the same
+  pixel space as the `<rect>` `x`/`width` attributes, no scroll-offset math needed): real mouse
+  hover (`onMouseMove`, web-only) drives it on desktop, while touch-drag (`onTouchStart`/
+  `onTouchMove`, works on native iOS/Android and mobile web alike) substitutes for hover on
+  touchscreens, which have no hover concept. Both render the same vertical cursor line + floating
+  blue Smart Summary box (time/age label above, sentence below) positioned under the touch/cursor
+  x-coordinate.
+
+Wiring this up surfaced the same class of bug already documented for `SkyChartFactory` (gap #16
+below), independently in `EventsChartFactory.cs`: its `<svg>`/`<g>`/`<rect>` wrapper elements
+(the outer holder, content group, border rect, and per-row group) carried bare `class="..."`
+attributes (`EventChartHolder`, `EventChartContent`, `EventChartBorder`, `EventListHolder`, plus
+`WrapSvgElements`'s own `svgClass` parameter — a separate code path shared with
+`BirthTimeFinderAPI.cs`/`Console/Program.cs`) left over from the old jQuery-selector-based JS
+layer. `react-native-svg`'s `SvgXml` renders these onto `react-native-web` DOM elements, which
+logs "Invalid DOM property `class`. Did you mean `className`?" for each one — harmless (it's a
+web console warning, not a native crash) but noisy enough to surface as an error overlay in Expo
+web dev. Removed at the source, same fix as gap #16: these attributes were only ever JS-selector
+hooks, nothing in the SVG's own `style=""` attributes depends on them.
+
 ## Geographical Location and Timezone Management
 
 ## Diagram 7
@@ -847,3 +908,12 @@ unrelated to the Azure migration itself but worth keeping in the historical reco
     groups (preserving the same scale/center a nested `<svg>`'s default
     `preserveAspectRatio="xMidYMid meet"` would have given) and inlining any Illustrator
     `<style>` class rules as `style=""` attributes, in `Tools.FormatSvgIcon`.
+17. **`EventsChartFactory.cs` had the same bare `class="..."` problem as #16, independently** —
+    the outer `<svg>` holder, content `<g>`, border `<rect>`, per-row `<g>`, and
+    `WrapSvgElements`'s `svgClass` parameter (shared with `BirthTimeFinderAPI.cs`/
+    `Console/Program.cs`) all carried `class="EventChartHolder"`/`"EventChartContent"`/
+    `"EventChartBorder"`/`"EventListHolder"`/`{svgClass}` attributes left over from the old
+    jQuery-selector-based `EventsChart.js`. Found while wiring up `EventsChartViewer.tsx`'s new
+    Smart Summary tooltip (see [Life Events Chart & Smart Summary Tooltip](#life-events-chart--smart-summary-tooltip)),
+    since `SvgXml` logs the same "Invalid DOM property `class`" warning `SvgUri` does. Removed at
+    the source — none of the SVG's own `style=""` attributes depended on these classes.

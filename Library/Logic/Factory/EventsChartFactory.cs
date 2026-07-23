@@ -175,14 +175,14 @@ namespace VedAstro.Library
                 //place birth time in chart to be used by EventsChart.js for google event detection
                 var birthTimeStdText = inputPerson.BirthTimeString;
 
-                svgHead = $"<svg birthtime=\"{birthTimeStdText}\" birthlocation=\"{inputPerson.GetBirthLocation().Name()}\" class=\"EventChartHolder\" id=\"{randomId}\" style=\"{svgStyle}\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">";//much needed for use tags to work
+                svgHead = $"<svg birthtime=\"{birthTimeStdText}\" birthlocation=\"{inputPerson.GetBirthLocation().Name()}\" id=\"{randomId}\" style=\"{svgStyle}\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">";//much needed for use tags to work
 
                 //inject JS code to be able to run direct in browser without website
                 jsCode = GetJsCodeSvg(randomId);
 
                 //place all content except border & cursor time legend inside group for padding
                 const int contentPadding = 2;//todo move to central place
-                contentHead = $"<g class=\"EventChartContent\" transform=\"matrix(1, 0, 0, 1, {contentPadding}, {contentPadding})\">";
+                contentHead = $"<g transform=\"matrix(1, 0, 0, 1, {contentPadding}, {contentPadding})\">";
 
                 svgTail = "</svg>";
                 contentTail = "</g>";
@@ -340,7 +340,7 @@ namespace VedAstro.Library
 
             //create the final svg that will be displayed
             var svgTotalWidth = svgWidth + 10; //add little for wiggle room
-            var svgBody = $"<svg class=\"{svgClass}\" id=\"{randomId}\"" +
+            var svgBody = $"<svg id=\"{randomId}\"" +
                           //$" width=\"100%\"" +
                           //$" height=\"100%\"" +
                           $" style=\"" +
@@ -400,7 +400,7 @@ namespace VedAstro.Library
             var borderWidth = dasaSvgWidth + 2; //contentPadding = 2 todo centralize
             var roundedBorder = 3;
             svgTotalHeight += 10; //adjust
-            var compiledRow = $"<rect class=\"EventChartBorder\" rx=\"{roundedBorder}\" width=\"{borderWidth}\" height=\"{svgTotalHeight}\" style=\"stroke-width: 2; fill: none; paint-order: stroke; stroke:#333;\"></rect>";
+            var compiledRow = $"<rect rx=\"{roundedBorder}\" width=\"{borderWidth}\" height=\"{svgTotalHeight}\" style=\"stroke-width: 2; fill: none; paint-order: stroke; stroke:#333;\"></rect>";
 
             return compiledRow;
         }
@@ -1657,6 +1657,7 @@ namespace VedAstro.Library
                                    $"eventname=\"{foundEvent?.FormattedName}\" " +
                                    $"eventdescription=\"{foundEvent?.Description}\" " +
                                    $"naturescore=\"{foundEvent?.NatureScore}\" " +
+                                   $"summarycategories=\"{FormatSummaryCategories(foundEvent?.SpecializedSummary)}\" " +
                                    $"age=\"{inputPerson.GetAge(slice)}\" " +
                                    $"stdtime=\"{slice.GetStdDateTimeOffset().ToString(Time.DateTimeFormat)}\" " +
                                    $"x=\"{horizontalPosition}\" " +
@@ -1708,7 +1709,7 @@ namespace VedAstro.Library
 
                 //wrap all the rects inside a svg so they can be moved together
                 //note: use group instead of svg because editing capabilities
-                rowHtml = $"<g class=\"EventListHolder\" transform=\"matrix(1, 0, 0, 1, {xAxis}, 0)\">{rowHtml}</g>";
+                rowHtml = $"<g transform=\"matrix(1, 0, 0, 1, {xAxis}, 0)\">{rowHtml}</g>";
 
                 //send height of tallest time slice aka the
                 //final height of this gochara row to caller
@@ -1829,6 +1830,32 @@ namespace VedAstro.Library
             yAxis += 15;
 
             return rowHtml;
+        }
+
+        /// <summary>
+        /// Compacts an event's SpecializedSummary into "Category:Nature:Weight" pairs
+        /// (Neutral/empty categories skipped) for the client's Smart Summary tooltip
+        /// to aggregate per hovered time slice, e.g. "Family:Good:2,Money:Good:1,Body:Bad:1"
+        /// </summary>
+        private static string FormatSummaryCategories(SpecializedSummary summary)
+        {
+            if (summary == null) { return ""; }
+
+            var parts = new List<string>();
+            void AddIfNotNeutral(string categoryName, SummaryMetadata metadata)
+            {
+                if (metadata == null || metadata.Nature == EventNature.Neutral || metadata.Nature == EventNature.Empty) { return; }
+                parts.Add($"{categoryName}:{metadata.Nature}:{metadata.Weight}");
+            }
+
+            AddIfNotNeutral("Mind", summary.Mind);
+            AddIfNotNeutral("Studies", summary.Studies);
+            AddIfNotNeutral("Family", summary.Family);
+            AddIfNotNeutral("Money", summary.Money);
+            AddIfNotNeutral("Love", summary.Love);
+            AddIfNotNeutral("Body", summary.Body);
+
+            return string.Join(",", parts);
         }
 
         /// <summary>
