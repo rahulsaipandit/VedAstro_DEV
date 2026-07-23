@@ -42,10 +42,18 @@ function parseStdTime(stdTime: string) {
 }
 
 /**
- * Mirrors Calculate.AutoCalculateTimeRange's preset math exactly (Library/Logic/Calculate/CoreMisc.cs)
- * — pure date arithmetic off the birth date, no API call needed. Only the subset of presets
- * LifePredictor/GoodTimeFinder actually default to is implemented (full life + a few multi-year
- * spans); the free-text "age1to10"/"1990-2000" forms aren't exposed in the simplified RN UI.
+ * Mirrors Calculate.AutoCalculateTimeRange's preset math (Library/Logic/Calculate/CoreMisc.cs)
+ * — pure date arithmetic, no API call needed. Only the subset of presets LifePredictor/
+ * GoodTimeFinder actually default to is implemented (full life + a few multi-year spans); the
+ * free-text "age1to10"/"1990-2000" forms aren't exposed in the simplified RN UI.
+ *
+ * "FullLife" is birth-anchored (birth → birth+100 years, a whole-life overview). Every other
+ * preset ("1year"/"3year"/"5year"/"10year") is anchored on the CURRENT moment, not birth — e.g.
+ * "+1 Year" means the next 12 months starting today, not the person's first year of life. This
+ * matches what a Muhurta/electional tool and a near-term life forecast both actually need
+ * (looking ahead from now), and is what a live bug report against the deployed Blazor site
+ * confirmed as the expected behavior for "+1 Year" (birth 01/01/1980, clicked today → expected
+ * today..+1 year, not 01/01/1980..01/01/1981).
  */
 export const TIME_RANGE_PRESETS = ['FullLife', '1year', '3year', '5year', '10year'] as const;
 export type TimeRangePreset = (typeof TIME_RANGE_PRESETS)[number];
@@ -67,12 +75,45 @@ function roundDaysPerPixel(days: number, maxWidth: number): number {
   return Math.round((days / maxWidth) * 1000) / 1000;
 }
 
-/** Auto-fill for GoodTimeFinder's Precision field when the preset (not custom range) path is used. */
-export function computeDaysPerPixelForPreset(person: PersonLike, preset: TimeRangePreset, maxWidth = 940): number {
+/** "+HH:mm"/"-HH:mm" -> signed minutes offset from UTC. */
+function parseOffsetMinutes(offset: string): number {
+  const match = /^([+-])(\d{2}):(\d{2})$/.exec(offset);
+  if (!match) return 0;
+  const sign = match[1] === '-' ? -1 : 1;
+  return sign * (parseInt(match[2], 10) * 60 + parseInt(match[3], 10));
+}
+
+/** The current wall-clock date/time as displayed at the given UTC offset (e.g. the birth location's timezone). */
+function nowAtOffset(offset: string): { hh: string; mm: string; dd: string; mo: string; yyyy: string } {
+  const shifted = new Date(Date.now() + parseOffsetMinutes(offset) * 60 * 1000);
+  return {
+    hh: String(shifted.getUTCHours()).padStart(2, '0'),
+    mm: String(shifted.getUTCMinutes()).padStart(2, '0'),
+    dd: String(shifted.getUTCDate()).padStart(2, '0'),
+    mo: String(shifted.getUTCMonth() + 1).padStart(2, '0'),
+    yyyy: String(shifted.getUTCFullYear()),
+  };
+}
+
+/** Resolves a TimeRangePreset's literal start/end date parts — "FullLife" from birth, everything else forward from now. */
+function resolvePresetRange(person: PersonLike, preset: TimeRangePreset) {
   const birth = parseStdTime(person.birthTime.StdTime);
   const years = presetToYears(preset);
-  const startYear = parseInt(birth.yyyy, 10);
-  return roundDaysPerPixel(daysBetween(startYear, +birth.mo, +birth.dd, startYear + years, +birth.mo, +birth.dd), maxWidth);
+
+  if (preset === 'FullLife') {
+    const startYear = parseInt(birth.yyyy, 10);
+    return { start: birth, end: { ...birth, yyyy: String(startYear + years) }, offset: birth.offset };
+  }
+
+  const start = nowAtOffset(birth.offset);
+  const end = { ...start, yyyy: String(parseInt(start.yyyy, 10) + years) };
+  return { start, end, offset: birth.offset };
+}
+
+/** Auto-fill for GoodTimeFinder's Precision field when the preset (not custom range) path is used. */
+export function computeDaysPerPixelForPreset(person: PersonLike, preset: TimeRangePreset, maxWidth = 940): number {
+  const { start, end } = resolvePresetRange(person, preset);
+  return roundDaysPerPixel(daysBetween(+start.yyyy, +start.mo, +start.dd, +end.yyyy, +end.mo, +end.dd), maxWidth);
 }
 
 /** Auto-fill for GoodTimeFinder's Precision field when a custom Year/Month range is used. */
@@ -93,19 +134,13 @@ export async function getEventsChartSvg(
   const algorithmNamesCsv = options?.algorithmNamesCsv ?? 'General';
   const ayanamsaName = options?.ayanamsaName ?? 'Raman';
 
-  const birth = parseStdTime(person.birthTime.StdTime);
-  const years = presetToYears(preset);
-  const startYear = parseInt(birth.yyyy, 10);
-  const endYear = startYear + years;
-
-  const start = birth;
-  const end = { ...birth, yyyy: String(endYear) };
+  const { start, end, offset } = resolvePresetRange(person, preset);
 
   const daysPerPixel = options?.daysPerPixelOverride ?? computeDaysPerPixelForPreset(person, preset, maxWidth);
 
   const url =
     `${apiUrlDirect}/EventsChart` +
-    eventsChartUrl(person.id, start, end, birth.offset, daysPerPixel, eventTagsCsv, algorithmNamesCsv) +
+    eventsChartUrl(person.id, start, end, offset, daysPerPixel, eventTagsCsv, algorithmNamesCsv) +
     `/Ayanamsa/${ayanamsaName}`;
 
   return pollForSvg(url);

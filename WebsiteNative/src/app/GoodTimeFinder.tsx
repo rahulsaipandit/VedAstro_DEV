@@ -26,7 +26,7 @@ import {
 } from '@/constants/eventsChartOptions';
 import { AYANAMSA_GROUPS } from '@/constants/ayanamsa';
 import type { Person } from '@/lib/api/person';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 
 const PRESET_LABELS: Record<TimeRangePreset, string> = {
   FullLife: 'Full Life',
@@ -306,7 +306,6 @@ const styles = StyleSheet.create({
   },
   page: {
     width: '100%',
-    maxWidth: MaxContentWidth,
     paddingHorizontal: Spacing.three,
     paddingTop: Spacing.five,
     paddingBottom: Spacing.six,

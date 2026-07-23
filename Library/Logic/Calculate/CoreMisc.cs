@@ -130,7 +130,21 @@ namespace VedAstro.Library
 
         /// <summary>
         /// Given a birth time and a human time-range preset, generates a start & end time.
-        /// Supports presets like "age1to10", "3weeks", "3months", "3years", "fulllife", or a literal "1990-2000" year range.
+        /// Supports presets like "age1to10", "1day"/"3weeks", "3month"/"3months", "3year"/"3years",
+        /// "fulllife", or a literal "1990-2000" year range. Both singular and plural unit suffixes
+        /// are accepted: TimeRangeSelector (Website_Mobile/js/VedAstro.js, and the still-live
+        /// Website/Pages/Calculator/GoodTimeFinder.razor/LifePredictor.razor dropdowns) always
+        /// sends singular ("1year", not "1years") — a prior version of this method only matched
+        /// the plural form, silently falling through to the 100-year-from-birth default for every
+        /// single preset click.
+        /// The "Nday(s)"/"Nweek(s)"/"Nmonth(s)"/"Nyear(s)" presets are anchored on the CURRENT
+        /// moment, not birth: confirmed via a live bug report against the deployed Blazor
+        /// GoodTimeFinder page — for a person born 01/01/1980, clicking "+1 Year" today is expected
+        /// to show today..+1 year (a forward-looking Muhurta/forecast window), not
+        /// 01/01/1980..01/01/1981 (the person's first year of life). Birth time is only used here
+        /// for GeoLocation context, not as the range anchor, for this branch. "age1to10",
+        /// "fulllife", and literal year ranges remain birth-anchored, since those are inherently
+        /// about the person's life span.
         /// outputTimezone: output timezone can be different from birth timezone (e.g. "+08:00").
         /// </summary>
         public static (Time start, Time end) AutoCalculateTimeRange(Time inputBirthTime, string timePreset, TimeSpan outputTimezone)
@@ -163,13 +177,19 @@ namespace VedAstro.Library
                 }
             }
 
-            //"Nweeks" / "Nmonths" / "Nyears" centered on birth time going forward
+            //"Nday(s)" / "Nweek(s)" / "Nmonth(s)" / "Nyear(s)": a forward-looking window starting
+            //NOW, not from birth (unit suffix accepted singular or plural, see doc comment above)
             var numberPart = new string(preset.TakeWhile(char.IsDigit).ToArray());
             if (int.TryParse(numberPart, out var n))
             {
-                if (preset.EndsWith("weeks")) { return (AtOffset(birthStd), AtOffset(birthStd.AddDays(n * 7))); }
-                if (preset.EndsWith("months")) { return (AtOffset(birthStd), AtOffset(birthStd.AddMonths(n))); }
-                if (preset.EndsWith("years")) { return (AtOffset(birthStd), AtOffset(birthStd.AddYears(n))); }
+                var unit = preset.Substring(numberPart.Length);
+                if (unit.EndsWith("s")) { unit = unit.Substring(0, unit.Length - 1); }
+
+                var nowStd = DateTimeOffset.UtcNow;
+                if (unit == "day") { return (AtOffset(nowStd), AtOffset(nowStd.AddDays(n))); }
+                if (unit == "week") { return (AtOffset(nowStd), AtOffset(nowStd.AddDays(n * 7))); }
+                if (unit == "month") { return (AtOffset(nowStd), AtOffset(nowStd.AddMonths(n))); }
+                if (unit == "year") { return (AtOffset(nowStd), AtOffset(nowStd.AddYears(n))); }
             }
 
             //"fulllife" or unrecognized preset: default to a wide 100 year span from birth

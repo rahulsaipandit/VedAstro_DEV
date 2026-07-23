@@ -651,6 +651,42 @@ submits) — the restored WebsiteNative screen instead sends whatever algorithms
 checked, matching the simpler and internally-consistent behavior of the original
 `Website_Mobile/js/GoodTimeFinder.js`.
 
+**A second, more severe bug was found and fixed in the same area, reported directly against the
+live Blazor site**: clicking any `+1/+3/+5/+10 Year` preset showed a range whose start was
+correctly the birth time but whose end was `DateTime.Now + N years` instead of `birth + N years`.
+Two compounding root causes:
+
+1. `Calculate.AutoCalculateTimeRange` (`Library/Logic/Calculate/CoreMisc.cs`) only matched presets
+   ending in the **plural** suffix (`"years"`), while `TimeRangeSelector.getSelectedTimeRangeAsURLString()`
+   (confirmed directly from `github.com/VedAstro/VedAstro`'s `Website_Mobile/js/VedAstro.js:5985-6018`)
+   always sends the **singular** form (`"1year"`, `"3year"`, no trailing `s`) — every preset click
+   silently missed the match and fell through to the unrecognized-preset default
+   (`birth + 100 years`, i.e. "full life"). Fixed to accept both singular and plural unit suffixes
+   (`day(s)`, `week(s)`, `month(s)`, `year(s)`), and added `"1day"` handling (previously unhandled
+   entirely, despite being the dropdown's first non-custom option).
+2. Fixing only (1) still didn't match the reported expectation: the resulting behavior was
+   `birth → birth+N`, but for a person born 01/01/1980, clicking "+1 Year" today was expected to
+   show *today..+1 year* — a forward-looking Muhurta/forecast window, not the person's first year
+   of life. The correct semantics (confirmed by the reporter after this second fix): `"age1to10"`,
+   `"fulllife"`, and literal year-range presets stay birth-anchored (inherently about the person's
+   life span), but every `"Nday(s)"/"Nweek(s)"/"Nmonth(s)"/"Nyear(s)"` preset should anchor on the
+   **current moment**, using birth only for `GeoLocation` context.
+
+Both fixes were applied in **two places**, since WebsiteNative doesn't call
+`AutoCalculateTimeRange` at all — it computes Start/End client-side (see above) and only shares
+the *semantics*, not the code path:
+- `Library/Logic/Calculate/CoreMisc.cs` — the still-live Blazor pages' server-side `/TimePreset/`
+  path.
+- `WebsiteNative/src/lib/api/eventsChart.ts`'s `resolvePresetRange` — WebsiteNative's client-side
+  path (used by both `GoodTimeFinder.tsx` and `LifePredictor.tsx` via `getEventsChartSvg`).
+
+Regression tests: `LibraryTests/Logic/Calculate/CoreMiscTests.cs`. Aside, found while chasing
+this: `AutoCalculateTimeRange`'s real production implementation could not be found committed under
+any name in a full clone of `github.com/VedAstro/VedAstro`'s master branch — only *callers* exist
+there (`EventsChart.cs`, `LifePredictor.razor`, `GoodTimeFinder.razor`). Same "reconstructed, not
+restored" situation as `IndianChartFactory` (see below) — this repo's version is a best-effort
+reconstruction, not a verbatim restore.
+
 Still no dedicated integration test exists for GoodTimeFinder specifically —
 `API/API.IntegrationTests/EventsChartEndpointsTests.cs` exercises the shared `/api/EventsChart`
 endpoint generically (one test case using tags `Gochara,General`), but nothing named
@@ -1094,3 +1130,29 @@ unrelated to the Azure migration itself but worth keeping in the historical reco
     custom Year/Month range), and `LifePredictor.tsx` now passes its `PD1-PD7`/`General` defaults
     explicitly so the two screens can't silently reconverge again. See
     [GoodTimeFinder](#goodtimefinder-electionalmuhurtha-search) above for the full writeup.
+19. **Two compounding bugs in `+1/+3/+5/+10 Year`-style presets, found via a live bug report
+    against the deployed Blazor `GoodTimeFinder` page:**
+    - **Singular vs. plural suffix mismatch** — `Calculate.AutoCalculateTimeRange`
+      (`Library/Logic/Calculate/CoreMisc.cs`) only matched presets ending in the plural suffix
+      (`"years"`), while the real UI always sends singular (`"1year"`) — every preset click
+      silently missed the match and fell through to the unrecognized-preset default. Fixed to
+      accept both singular and plural unit suffixes (`day(s)`/`week(s)`/`month(s)`/`year(s)`).
+    - **Wrong anchor for the fallback-corrected presets** — an initial fix (kept both start and
+      end anchored on birth: `birth → birth+N`) still didn't match the reported expectation: for a
+      person born 01/01/1980, clicking "+1 Year" today should show *today..+1 year* (a
+      forward-looking Muhurta/forecast window), not `01/01/1980..01/01/1981` (their first year of
+      life). Fixed by anchoring the `"Nday(s)"/"Nweek(s)"/"Nmonth(s)"/"Nyear(s)"` branch on the
+      current moment instead of birth (birth is still used for `GeoLocation` context only);
+      `"age1to10"`, `"fulllife"`, and literal year-range presets remain birth-anchored, since those
+      are inherently about the person's life span. Applied in both
+      `Library/Logic/Calculate/CoreMisc.cs` (the still-live Blazor pages' server-side path) and
+      `WebsiteNative/src/lib/api/eventsChart.ts`'s `resolvePresetRange` (WebsiteNative's
+      client-side path, which computes Start/End itself rather than calling
+      `AutoCalculateTimeRange` — see [GoodTimeFinder](#goodtimefinder-electionalmuhurtha-search)
+      above). Regression tests: `LibraryTests/Logic/Calculate/CoreMiscTests.cs`. Confirmed by the
+      reporter as correct after this second fix.
+    - Aside, found while chasing this: `AutoCalculateTimeRange`'s actual production implementation
+      (deployed Blazor site) could not be found committed under any name in a full clone of
+      `github.com/VedAstro/VedAstro`'s master branch — only *callers* exist there. Same
+      "reconstructed, not restored" situation as `IndianChartFactory` (item below) — this repo's
+      version is a best-effort reconstruction, not a verbatim restore.
