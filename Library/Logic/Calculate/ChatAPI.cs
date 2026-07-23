@@ -1744,15 +1744,20 @@ namespace VedAstro.Library
                 // speeds. The cloud endpoints this was tuned for have much higher throughput, so
                 // this cap only applies when actually routed to a local server - production/cloud
                 // behavior (MaxTokens as configured per call site) is unchanged.
-                if (settings.MaxTokens > 2048) { settings.MaxTokens = 2048; }
+                //raised from 2048: reasoning models (e.g. Qwen3) spend a chunk of this budget on
+                //hidden "reasoning_content" before ever writing the real answer - 2048 was routinely
+                //consumed entirely by reasoning, cutting the response off (finish_reason "length")
+                //before any real content existed. See ProcessResponseAsync's empty-content check
+                //below for what happens if a model still exhausts the budget on reasoning alone.
+                if (settings.MaxTokens > 4096) { settings.MaxTokens = 4096; }
 
                 //local reasoning models are much slower than cloud endpoints and can burn most of
                 //their token budget on hidden "reasoning_content" before ever emitting a real answer -
                 //the default HttpClient.Timeout of 100s is routinely too short for this. Raised from
-                //300s: even with the MaxTokens cap above, a large input prompt (e.g. a full
-                //horoscope prediction list, ~5,000+ tokens) still needs a slow prefill pass before
-                //generation starts at all.
-                localTimeout = TimeSpan.FromSeconds(600);
+                //600s: LM Studio was observed still generating well past that mark on slower
+                //hardware/models, even with the MaxTokens cap above and a large input prompt (e.g. a
+                //full horoscope prediction list, ~5,000+ tokens) needing a slow prefill pass first.
+                localTimeout = TimeSpan.FromSeconds(1200);
                 Console.WriteLine($"[ChatAPI] routing LLM call to {settings.ServerUrl} (local MaxTokens={settings.MaxTokens}, timeout={localTimeout})");
             }
 
@@ -1763,8 +1768,18 @@ namespace VedAstro.Library
             using (var client = new HttpClient(handler))
             {
                 if (localTimeout.HasValue) { client.Timeout = localTimeout.Value; }
-                HttpResponseMessage response = await PostRequestAsync(client, content, settings.ServerUrl, settings.ApiKey);
-                return await ProcessResponseAsync(response);
+                try
+                {
+                    HttpResponseMessage response = await PostRequestAsync(client, content, settings.ServerUrl, settings.ApiKey);
+                    return await ProcessResponseAsync(response);
+                }
+                //HttpClient throws TaskCanceledException (wrapping a TimeoutException) when
+                //client.Timeout elapses - rethrow with a message the frontend can recognize and
+                //show as a friendly "LLM took too long" toast instead of a generic error.
+                catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
+                {
+                    throw new Exception($"The AI model took too long to respond (timed out after {client.Timeout.TotalSeconds:0}s). Please try again.");
+                }
             }
         }
 
@@ -1822,8 +1837,21 @@ namespace VedAstro.Library
             {
                 string fullReplyRaw = await response.Content.ReadAsStringAsync();
                 var fullReply = new LlamaReplyJson(fullReplyRaw);
+                var choice = fullReply.Choices.FirstOrDefault();
+                var replyContent = choice?.Message?.Content;
 
-                return fullReply.Choices.FirstOrDefault().Message.Content;
+                //some local "thinking" models (e.g. Qwen3) write their whole answer into a hidden
+                //reasoning_content field first and can burn through max_tokens before ever writing to
+                //the real content field - that's a 200 OK with an empty answer, not an HTTP failure,
+                //so it would otherwise reach the frontend silently as a blank chat bubble.
+                if (string.IsNullOrWhiteSpace(replyContent))
+                {
+                    throw new Exception(choice?.FinishReason == "length"
+                        ? "The AI model ran out of its response budget before writing an answer (it likely spent it all on hidden reasoning). Try again, or in LM Studio use a larger max tokens setting or a non-reasoning model."
+                        : "The AI model returned an empty response. Please try again.");
+                }
+
+                return replyContent;
             }
             else
             {

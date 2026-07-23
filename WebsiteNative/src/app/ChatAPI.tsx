@@ -8,6 +8,7 @@ import { Icon } from '@/components/Icon';
 import { useTheme } from '@/hooks/use-theme';
 import { useAppStore } from '@/store/useAppStore';
 import { askHoroscopeChat, askHoroscopeFollowUpChat, sendChatFeedback } from '@/lib/api/chat';
+import { showErrorToast } from '@/lib/toast';
 import type { Person } from '@/lib/api/person';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 
@@ -60,7 +61,12 @@ export default function ChatAPIScreen() {
       setLastHash(reply.textHash);
       setMessages((prev) => [...prev, { role: 'ai', text: reply.text, hash: reply.textHash }]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Chat request failed');
+      //ChatAPI.cs's ProcessPrediction/ProcessResponseAsync raise descriptive messages for the
+      //known failure modes (LLM timeout, empty/truncated reasoning-model output), so just surface
+      //whatever came back rather than guessing at a category here.
+      const message = e instanceof Error ? e.message : 'Chat request failed';
+      setError(message);
+      showErrorToast(message);
     } finally {
       setSending(false);
     }
