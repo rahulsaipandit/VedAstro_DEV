@@ -175,13 +175,16 @@ namespace VedAstro.Library
                 //place birth time in chart to be used by EventsChart.js for google event detection
                 var birthTimeStdText = inputPerson.BirthTimeString;
 
-                svgHead = $"<svg birthtime=\"{birthTimeStdText}\" birthlocation=\"{inputPerson.GetBirthLocation().Name()}\" id=\"{randomId}\" style=\"{svgStyle}\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">";//much needed for use tags to work
+                //place all content except border & cursor time legend inside group for padding
+                const int contentPadding = 2;//todo move to central place
+
+                //contentpadding exposed as an attribute so clients can offset event-rect x/y
+                //(read raw off <rect> attributes) by the same amount this <g> visually shifts them
+                svgHead = $"<svg birthtime=\"{birthTimeStdText}\" birthlocation=\"{inputPerson.GetBirthLocation().Name()}\" contentpadding=\"{contentPadding}\" id=\"{randomId}\" style=\"{svgStyle}\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">";//much needed for use tags to work
 
                 //inject JS code to be able to run direct in browser without website
                 jsCode = GetJsCodeSvg(randomId);
 
-                //place all content except border & cursor time legend inside group for padding
-                const int contentPadding = 2;//todo move to central place
                 contentHead = $"<g transform=\"matrix(1, 0, 0, 1, {contentPadding}, {contentPadding})\">";
 
                 svgTail = "</svg>";

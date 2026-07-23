@@ -140,6 +140,17 @@ function attr(rectXml: string, name: string): string {
 }
 
 /**
+ * The root <svg>'s "contentpadding" attribute (EventsChartFactory.cs's contentHead) — every event
+ * <rect>'s raw x/y attributes are visually shifted by this much via a wrapping <g transform>, so
+ * any on-screen pixel coordinate (mouse/touch position) needs this added back before comparing
+ * against a rect's raw x, or every hit-test misses by exactly this offset.
+ */
+export function parseContentPadding(svg: string): number {
+  const match = /<svg\b[^>]*\bcontentpadding="(-?[\d.]+)"/i.exec(svg);
+  return match ? parseFloat(match[1]) : 0;
+}
+
+/**
  * Extracts every life-event data-rect out of the raw chart SVG (attributes documented at the
  * emission site, EventsChartFactory.cs's GenerateMultipleRowSvg) — this is the same per-event data
  * the old EventsChart.js's tippy tooltips read client-side, now used to drive the Smart Summary

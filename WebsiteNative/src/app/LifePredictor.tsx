@@ -9,7 +9,7 @@ import { showErrorToast } from '@/lib/toast';
 import { useAppStore } from '@/store/useAppStore';
 import { TIME_RANGE_PRESETS, type TimeRangePreset } from '@/lib/api/eventsChart';
 import type { Person } from '@/lib/api/person';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 
 const PRESET_LABELS: Record<TimeRangePreset, string> = {
   FullLife: 'Full Life',
@@ -107,7 +107,6 @@ const styles = StyleSheet.create({
   },
   page: {
     width: '100%',
-    maxWidth: MaxContentWidth,
     paddingHorizontal: Spacing.three,
     paddingTop: Spacing.five,
     paddingBottom: Spacing.six,

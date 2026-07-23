@@ -8,6 +8,7 @@ import { ThemedView } from './themed-view';
 import {
   buildSmartSummary,
   getEventsChartSvg,
+  parseContentPadding,
   parseEventRects,
   type EventRect,
   type TimeRangePreset,
@@ -40,6 +41,8 @@ export function EventsChartViewer({
   const [loading, setLoading] = useState(true);
   const [cursorX, setCursorX] = useState<number | null>(null);
   const [chartHeight, setChartHeight] = useState(0);
+  const [scrollOffsetX, setScrollOffsetX] = useState(0);
+  const [viewportWidth, setViewportWidth] = useState(0);
   const containerRef = useRef<View>(null);
 
   useEffect(() => {
@@ -63,11 +66,16 @@ export function EventsChartViewer({
   }, [apiUrlDirect, person, preset]);
 
   const eventRects = useMemo(() => (svg ? parseEventRects(svg) : []), [svg]);
+  // Every <rect>'s raw x/y is visually shifted on-screen by this much (EventsChartFactory.cs's
+  // contentHead <g transform>) - the actual on-screen pixel position under the pointer/finger is
+  // rect.x + contentPadding, so subtract it back off before comparing against raw rect.x.
+  const contentPadding = useMemo(() => (svg ? parseContentPadding(svg) : 0), [svg]);
 
   const rectsAtCursor: EventRect[] = useMemo(() => {
     if (cursorX == null) return [];
-    return eventRects.filter((rect) => cursorX >= rect.x && cursorX < rect.x + rect.width);
-  }, [eventRects, cursorX]);
+    const x = cursorX - contentPadding;
+    return eventRects.filter((rect) => x >= rect.x && x < rect.x + rect.width);
+  }, [eventRects, cursorX, contentPadding]);
 
   function moveCursorTo(clientOrLocationX: number) {
     setCursorX(Math.max(0, Math.round(clientOrLocationX)));
@@ -118,26 +126,44 @@ export function EventsChartViewer({
   const activeRect = rectsAtCursor[0];
   const summaryText = cursorX != null && rectsAtCursor.length > 0 ? buildSmartSummary(rectsAtCursor) : null;
 
+  // The tooltip renders OUTSIDE the horizontal ScrollView, in normal (non-absolute) document
+  // flow, deliberately: a horizontal-only ScrollView clips vertical overflow at its own content
+  // height, so a tooltip placed below the chart via absolute positioning *inside* the scrolled
+  // content was being silently clipped - present in the tree, invisible on screen. Since it's now
+  // a sibling, its horizontal position has to account for how far the chart has been scrolled
+  // (cursorX is relative to the scrolled content; the tooltip's own container isn't scrolled).
+  const tooltipWidth = 220;
+  const tooltipLeft =
+    cursorX != null
+      ? Math.min(Math.max(0, cursorX - scrollOffsetX - tooltipWidth / 2), Math.max(0, viewportWidth - tooltipWidth))
+      : 0;
+
   return (
-    <ScrollView horizontal style={styles.scroll}>
-      <View
-        ref={containerRef}
-        style={styles.chartContent}
-        onLayout={(e) => setChartHeight(e.nativeEvent.layout.height)}
-        onTouchStart={handleTouch}
-        onTouchMove={handleTouch}
-        onTouchEnd={() => setCursorX(null)}
-        {...(webHoverHandlers as object)}>
-        <SvgXml xml={svg} />
+    <View onLayout={(e) => setViewportWidth(e.nativeEvent.layout.width)}>
+      <ScrollView
+        horizontal
+        style={styles.scroll}
+        onScroll={(e) => setScrollOffsetX(e.nativeEvent.contentOffset.x)}
+        scrollEventThrottle={16}>
+        <View
+          ref={containerRef}
+          style={styles.chartContent}
+          onLayout={(e) => setChartHeight(e.nativeEvent.layout.height)}
+          onTouchStart={handleTouch}
+          onTouchMove={handleTouch}
+          onTouchEnd={() => setCursorX(null)}
+          {...(webHoverHandlers as object)}>
+          <SvgXml xml={svg} />
 
-        {cursorX != null && (
-          <View pointerEvents="none" style={[styles.cursorLine, { left: cursorX, height: chartHeight }]} />
-        )}
+          {cursorX != null && (
+            <View pointerEvents="none" style={[styles.cursorLine, { left: cursorX, height: chartHeight }]} />
+          )}
+        </View>
+      </ScrollView>
 
-        {summaryText && activeRect && (
-          <View
-            pointerEvents="none"
-            style={[styles.tooltip, { left: Math.max(0, cursorX! - 110), top: chartHeight + Spacing.two }]}>
+      {summaryText && activeRect && (
+        <View style={styles.tooltipRow}>
+          <View pointerEvents="none" style={[styles.tooltip, { marginLeft: tooltipLeft, width: tooltipWidth }]}>
             {activeRect.stdTime ? (
               <ThemedText type="small" style={styles.tooltipTime}>
                 {activeRect.stdTime.split(' ').slice(0, 2).join(' ')} AGE: {activeRect.age}
@@ -150,9 +176,9 @@ export function EventsChartViewer({
               </ThemedText>
             </View>
           </View>
-        )}
-      </View>
-    </ScrollView>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -175,9 +201,10 @@ const styles = StyleSheet.create({
     width: 2,
     backgroundColor: '#0d6efd',
   },
+  tooltipRow: {
+    marginTop: -Spacing.one,
+  },
   tooltip: {
-    position: 'absolute',
-    width: 220,
     gap: 4,
   },
   tooltipTime: {
