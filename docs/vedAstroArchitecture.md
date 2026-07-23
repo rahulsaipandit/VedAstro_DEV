@@ -568,6 +568,98 @@ web console warning, not a native crash) but noisy enough to surface as an error
 web dev. Removed at the source, same fix as gap #16: these attributes were only ever JS-selector
 hooks, nothing in the SVG's own `style=""` attributes depends on them.
 
+### GoodTimeFinder (electional/muhurtha search)
+
+GoodTimeFinder was never a distinct backend feature in either the old or new architecture — in
+both, it's a filtered *view* over the same `EventsChartFactory`/`EventsChart` engine
+`LifePredictor` uses (see
+[Life Events Chart & Smart Summary Tooltip](#life-events-chart--smart-summary-tooltip) above),
+differing only in which `EventTag`s are selected and in UI defaults. Confirmed by searching
+`Library/` for a dedicated `GoodTimeFinder`/`FindGoodTime`/`AuspiciousTime` calculator — the only
+hit is a doc-string entry in `Library/Data/OpenAPIStaticTable.cs`, not a real method.
+
+**Old**: `Website_Mobile/GoodTimeFinder.html` + `Website_Mobile/js/GoodTimeFinder.js` — a
+`PersonSelectorBox`, a `TimeRangeSelector` (default `1month`), an `EventsSelector` checkbox tree
+(`General, Personal, Agriculture, Building, Astronomical, BuyingSelling, Medical, Marriage,
+Travel, Studies, HairNailCutting`, default-selected `General, Personal` — muhurtha/electional
+event categories, e.g. weddings/travel/medical/hair-cutting, **not** Dasa periods), an Advanced
+panel (Ayanamsa, days-per-pixel precision, algorithm checkboxes, default `General`), calling the
+shared `EvensChartViewer`/`EventsChart` class in `Website_Mobile/js/VedAstro.js` against
+`GET {ApiDomain}/EventsChart/{personId}/{timeRangeUrl}/{daysPerPixel}/{selectedEventTags}/
+{selectedAlgorithms}/Ayanamsa/{selectedAyanamsa}` — the checkbox tree itself is populated from a
+separate `GET {ApiDomain}/Calculate/GetAllEventDataGroupedByTag` call. The still-live Blazor port
+(`Website/Pages/Calculator/GoodTimeFinder.razor`) is richer: 14 `EventTag` checkboxes (adds `Dasa`,
+`Gochara`), a full `Algorithm.AllMethods` checkbox list (though `OnClickCalculate` hardcodes
+sending only `Algorithm.General` regardless of which boxes are checked — a pre-existing quirk,
+not introduced by this migration), a custom year/age-range option, and a default time-range preset
+of `3month` (a third, different default from the mobile-web page's `1month`).
+
+**Status: fixed.** `WebsiteNative/src/app/GoodTimeFinder.tsx` was originally a self-documented
+*"simplified port"* that rendered `<EventsChartViewer apiUrlDirect person preset />` with no
+options — identical to `LifePredictor.tsx`'s call, which meant both screens silently fell through
+to the same hardcoded default in `eventsChart.ts` (`'PD1,PD2,PD3,PD4,PD5,PD6,PD7'`, LifePredictor's
+Dasa-period default) and **rendered identical chart content**, a real behavioral regression (see
+[Known Migration Gaps](#known-migration-gaps-pending-phase-4) item 18 for the original finding).
+This has been fixed by restoring full parity with the verified old implementation — confirmed
+directly from `git show HEAD:Website_Mobile/GoodTimeFinder.html`/`js/GoodTimeFinder.js` and
+`Website/Pages/Calculator/GoodTimeFinder.razor` (the still-live Blazor page), **not** from a
+plausible-sounding but inaccurate description of the page that surfaced mid-session (it described
+a `DateSelector`/`StartHour`/`EndHour`/`PrecisionInput` UI and an `EventsAtRange` endpoint — none
+of which exist anywhere in the repo's history on any branch, confirmed by also checking
+`github.com/VedAstro/VedAstro`'s master branch directly; the real old UI is `TimeRangeSelector` +
+`EventsSelector` + an Ayanamsa/precision/algorithm Advanced panel, exactly as this section
+describes).
+
+- `WebsiteNative/src/constants/eventsChartOptions.ts` (new) — `EVENT_TAG_OPTIONS` (the 13
+  checkboxes `GoodTimeFinder.razor` renders: `General, Personal, Agriculture, Studies, Building,
+  Travel, Astronomical, Marriage, BuyingSelling, HairNailCutting, Medical, Dasa, Gochara`, with
+  `Studies`/`Building` flagged `comingSoon` per the Blazor page's own tooltip text),
+  `GOOD_TIME_FINDER_DEFAULT_EVENT_TAGS` (`General, Personal` — the old JS's own default, restoring
+  the differentiation from LifePredictor), `ALGORITHM_OPTIONS` (the 10 `Algorithm.AllMethods`
+  method names from `Library/Logic/Algorithms.cs`), `GOOD_TIME_FINDER_DEFAULT_ALGORITHMS`
+  (`General`, per the old JS comment *"only uses Raman for Muhurtha"*), and `MONTH_OPTIONS` for the
+  custom-range month picker.
+- `WebsiteNative/src/lib/api/eventsChart.ts` gained `getEventsChartSvgCustomRange` +
+  `CustomRange` type (an explicit Year/Month start/end pair, mirroring
+  `ViewComponents/Components/MonthYearTimeRangeSelector.razor`'s granularity exactly — start = 1st
+  of the month at 00:00, end = last calendar day of the end month, device-local timezone offset
+  rather than the birth location's, matching `Tools.GetSystemTimezoneStr()`'s old behavior) and
+  `computeDaysPerPixelForPreset`/`computeDaysPerPixelForCustomRange` (auto-fill for the Precision
+  field, editable afterwards — same UX as `DaysPerPixelInput`/`DayPerPixelInput` auto-recalculating
+  on range change in both old implementations). Confirmed via `Library/Data/EventsChart.cs`'s
+  `FromUrl` that an explicit Start/End URL segment (`processType1`) is a fully independent code
+  path from the preset segment (`processType2`) — no server-side change was needed to support a
+  custom range.
+- `WebsiteNative/src/components/EventsChartViewer.tsx` gained optional `customRange`,
+  `eventTagsCsv`, `algorithmNamesCsv`, `ayanamsaName`, `daysPerPixelOverride` props, so any screen
+  can now override every option `EventsChart.cs`'s URL accepts instead of only `person`+`preset`.
+- `GoodTimeFinder.tsx` now renders the EventTag checkbox chips (default `General, Personal`), a
+  preset-or-custom time-range toggle, and a collapsible Advanced panel (Ayanamsa `Dropdown` reusing
+  the existing `AYANAMSA_GROUPS`, Algorithm checkboxes, editable Precision field) — reproducing the
+  old page's `IsValid()`/`OnClickCalculate()` checks (person selected, ≥1 tag, ≥1 algorithm, valid
+  custom-year input) via `showErrorToast`.
+- `LifePredictor.tsx` now explicitly passes its own `eventTagsCsv`/`algorithmNamesCsv`
+  (`PD1..PD7`/`General`) into `EventsChartViewer` rather than relying on `eventsChart.ts`'s
+  implicit default — so the two screens can no longer silently reconverge on identical chart
+  content the way they did before this fix.
+
+**Known deviation kept from the old page, not reintroduced:** the live Blazor
+`GoodTimeFinder.razor:520-554`'s `OnClickCalculate` actually hardcodes sending only
+`Algorithm.General` to the chart regardless of which Algorithm checkboxes are checked (a
+pre-existing Blazor-side inconsistency between its own default-checked boxes and what it actually
+submits) — the restored WebsiteNative screen instead sends whatever algorithms are actually
+checked, matching the simpler and internally-consistent behavior of the original
+`Website_Mobile/js/GoodTimeFinder.js`.
+
+Still no dedicated integration test exists for GoodTimeFinder specifically —
+`API/API.IntegrationTests/EventsChartEndpointsTests.cs` exercises the shared `/api/EventsChart`
+endpoint generically (one test case using tags `Gochara,General`), but nothing named
+"GoodTimeFinder" or asserting muhurtha-style tag behavior. Not addressed by this fix.
+
+(`API/FrontDesk/BirthTimeFinderAPI.cs`'s `/api/FindBirthTime/EventsChart/...` is unrelated despite
+the naming similarity — it's for birth-time rectification search over unknown birth times, not
+electional/muhurtha search, and should not be conflated with GoodTimeFinder.)
+
 ### Match / Compatibility Reports (MatchChecker → WebsiteNative)
 
 The Vedic compatibility ("Kuta"/Ashtakoot) feature was audited end-to-end this session and
@@ -992,3 +1084,13 @@ unrelated to the Azure migration itself but worth keeping in the historical reco
     Smart Summary tooltip (see [Life Events Chart & Smart Summary Tooltip](#life-events-chart--smart-summary-tooltip)),
     since `SvgXml` logs the same "Invalid DOM property `class`" warning `SvgUri` does. Removed at
     the source — none of the SVG's own `style=""` attributes depended on these classes.
+18. ~~`GoodTimeFinder.tsx` and `LifePredictor.tsx` render identical chart content~~ — neither
+    passed an `eventTagsCsv` option into `getEventsChartSvg`, so both fell through to
+    `eventsChart.ts`'s single hardcoded default (`'PD1,PD2,PD3,PD4,PD5,PD6,PD7'`, i.e. Dasa
+    periods), which in the old app was specifically LifePredictor's default — GoodTimeFinder
+    always sent muhurtha/electional event tags (`General`, `Personal`, etc.) instead. **Fixed**:
+    `GoodTimeFinder.tsx` was rebuilt to full parity with the verified old implementation (EventTag
+    checkboxes defaulting to `General, Personal`, Ayanamsa/Algorithm/Precision Advanced panel,
+    custom Year/Month range), and `LifePredictor.tsx` now passes its `PD1-PD7`/`General` defaults
+    explicitly so the two screens can't silently reconverge again. See
+    [GoodTimeFinder](#goodtimefinder-electionalmuhurtha-search) above for the full writeup.

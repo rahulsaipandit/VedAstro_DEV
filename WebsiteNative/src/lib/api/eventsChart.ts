@@ -62,12 +62,31 @@ function daysBetween(startYyyy: number, startMo: number, startDd: number, endYyy
   return Math.abs(end - start) / (1000 * 60 * 60 * 24);
 }
 
+/** Mirrors Library/Logic/Factory/EventsChartFactory.cs's EventsChart.GetDayPerPixel (days between / canvas width), rounded to 3dp like the old DayPerPixelInput default. */
+function roundDaysPerPixel(days: number, maxWidth: number): number {
+  return Math.round((days / maxWidth) * 1000) / 1000;
+}
+
+/** Auto-fill for GoodTimeFinder's Precision field when the preset (not custom range) path is used. */
+export function computeDaysPerPixelForPreset(person: PersonLike, preset: TimeRangePreset, maxWidth = 940): number {
+  const birth = parseStdTime(person.birthTime.StdTime);
+  const years = presetToYears(preset);
+  const startYear = parseInt(birth.yyyy, 10);
+  return roundDaysPerPixel(daysBetween(startYear, +birth.mo, +birth.dd, startYear + years, +birth.mo, +birth.dd), maxWidth);
+}
+
+/** Auto-fill for GoodTimeFinder's Precision field when a custom Year/Month range is used. */
+export function computeDaysPerPixelForCustomRange(range: CustomRange, maxWidth = 940): number {
+  const endDay = lastDayOfMonth(range.endYear, range.endMonth);
+  return roundDaysPerPixel(daysBetween(range.startYear, range.startMonth, 1, range.endYear, range.endMonth, endDay), maxWidth);
+}
+
 /** Calculate/EventsChart/{specs} — fetches the raw SVG chart text for a person over a time range preset. */
 export async function getEventsChartSvg(
   apiUrlDirect: string,
   person: PersonLike,
   preset: TimeRangePreset,
-  options?: { maxWidth?: number; eventTagsCsv?: string; algorithmNamesCsv?: string; ayanamsaName?: string }
+  options?: { maxWidth?: number; eventTagsCsv?: string; algorithmNamesCsv?: string; ayanamsaName?: string; daysPerPixelOverride?: number }
 ): Promise<string> {
   const maxWidth = options?.maxWidth ?? 940;
   const eventTagsCsv = options?.eventTagsCsv ?? 'PD1,PD2,PD3,PD4,PD5,PD6,PD7';
@@ -82,11 +101,64 @@ export async function getEventsChartSvg(
   const start = birth;
   const end = { ...birth, yyyy: String(endYear) };
 
-  const daysPerPixel = Math.round((daysBetween(startYear, +birth.mo, +birth.dd, endYear, +birth.mo, +birth.dd) / maxWidth) * 1000) / 1000;
+  const daysPerPixel = options?.daysPerPixelOverride ?? computeDaysPerPixelForPreset(person, preset, maxWidth);
 
   const url =
     `${apiUrlDirect}/EventsChart` +
     eventsChartUrl(person.id, start, end, birth.offset, daysPerPixel, eventTagsCsv, algorithmNamesCsv) +
+    `/Ayanamsa/${ayanamsaName}`;
+
+  return pollForSvg(url);
+}
+
+/**
+ * Year/Month range for GoodTimeFinder's "Custom" option — mirrors
+ * ViewComponents/Components/MonthYearTimeRangeSelector.razor exactly (start = 00:00 on the 1st of
+ * startMonth/startYear, end = 00:00 on the last day of endMonth/endYear, system-local timezone
+ * offset, not the birth location's). This is a literal Start/End date pair, so it bypasses
+ * Calculate.AutoCalculateTimeRange's preset math entirely — confirmed valid against
+ * Library/Data/EventsChart.cs's FromUrl `processType1` branch, which parses explicit Start/End
+ * segments with no preset involved.
+ */
+export type CustomRange = { startYear: number; startMonth: number; endYear: number; endMonth: number };
+
+/** Last calendar day of a 1-indexed (Jan=1) month, accounting for leap years. */
+function lastDayOfMonth(year: number, month1to12: number): number {
+  return new Date(year, month1to12, 0).getDate();
+}
+
+/** Device-local UTC offset formatted as "+HH:mm"/"-HH:mm" — the client-side equivalent of Tools.GetSystemTimezoneStr(). */
+function getLocalTimezoneOffset(): string {
+  const offsetMinutes = -new Date().getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const abs = Math.abs(offsetMinutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, '0');
+  const mm = String(abs % 60).padStart(2, '0');
+  return `${sign}${hh}:${mm}`;
+}
+
+/** Calculate/EventsChart/{specs} — fetches the raw SVG chart text for a person over an explicit Year/Month range. */
+export async function getEventsChartSvgCustomRange(
+  apiUrlDirect: string,
+  person: PersonLike,
+  range: CustomRange,
+  options?: { maxWidth?: number; eventTagsCsv?: string; algorithmNamesCsv?: string; ayanamsaName?: string; daysPerPixelOverride?: number }
+): Promise<string> {
+  const maxWidth = options?.maxWidth ?? 940;
+  const eventTagsCsv = options?.eventTagsCsv ?? 'General,Personal';
+  const algorithmNamesCsv = options?.algorithmNamesCsv ?? 'General';
+  const ayanamsaName = options?.ayanamsaName ?? 'Raman';
+  const offset = getLocalTimezoneOffset();
+
+  const endDay = lastDayOfMonth(range.endYear, range.endMonth);
+  const start = { hh: '00', mm: '00', dd: '01', mo: String(range.startMonth).padStart(2, '0'), yyyy: String(range.startYear) };
+  const end = { hh: '00', mm: '00', dd: String(endDay).padStart(2, '0'), mo: String(range.endMonth).padStart(2, '0'), yyyy: String(range.endYear) };
+
+  const daysPerPixel = options?.daysPerPixelOverride ?? computeDaysPerPixelForCustomRange(range, maxWidth);
+
+  const url =
+    `${apiUrlDirect}/EventsChart` +
+    eventsChartUrl(person.id, start, end, offset, daysPerPixel, eventTagsCsv, algorithmNamesCsv) +
     `/Ayanamsa/${ayanamsaName}`;
 
   return pollForSvg(url);

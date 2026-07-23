@@ -25,7 +25,14 @@ const PRESET_LABELS: Record<TimeRangePreset, string> = {
  * NOT ported — this uses the same fixed defaults the original page shipped with (General
  * algorithm; PD1-PD7 dasa levels), letting the person + time range choice drive the chart. See
  * migration.md for what's deferred and why.
+ *
+ * These are passed explicitly (not left to EventsChartViewer's own defaults) so this screen can
+ * never silently converge on the same chart content as GoodTimeFinder again — see
+ * docs/vedAstroArchitecture.md's Known Migration Gaps #18 for the regression this fixes.
  */
+const LIFE_PREDICTOR_EVENT_TAGS = 'PD1,PD2,PD3,PD4,PD5,PD6,PD7';
+const LIFE_PREDICTOR_ALGORITHMS = 'General';
+
 export default function LifePredictorScreen() {
   const apiUrlDirect = useAppStore((s) => s.apiUrlDirect());
   const [person, setPerson] = useState<Person | null>(null);
@@ -76,7 +83,13 @@ export default function LifePredictorScreen() {
         </Pressable>
 
         {calculated && (
-          <EventsChartViewer apiUrlDirect={apiUrlDirect} person={calculated.person} preset={calculated.preset} />
+          <EventsChartViewer
+            apiUrlDirect={apiUrlDirect}
+            person={calculated.person}
+            preset={calculated.preset}
+            eventTagsCsv={LIFE_PREDICTOR_EVENT_TAGS}
+            algorithmNamesCsv={LIFE_PREDICTOR_ALGORITHMS}
+          />
         )}
 
         <ThemedView style={styles.articleBlock}>

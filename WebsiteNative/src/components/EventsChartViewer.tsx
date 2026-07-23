@@ -8,8 +8,10 @@ import { ThemedView } from './themed-view';
 import {
   buildSmartSummary,
   getEventsChartSvg,
+  getEventsChartSvgCustomRange,
   parseContentPadding,
   parseEventRects,
+  type CustomRange,
   type EventRect,
   type TimeRangePreset,
 } from '@/lib/api/eventsChart';
@@ -31,10 +33,23 @@ export function EventsChartViewer({
   apiUrlDirect,
   person,
   preset,
+  customRange,
+  eventTagsCsv,
+  algorithmNamesCsv,
+  ayanamsaName,
+  daysPerPixelOverride,
 }: {
   apiUrlDirect: string;
   person: Person;
+  /** Ignored when `customRange` is given. */
   preset: TimeRangePreset;
+  /** GoodTimeFinder's "Custom" option — an explicit Year/Month range, bypassing `preset` entirely. */
+  customRange?: CustomRange;
+  /** Defaults to LifePredictor's PD1-PD7 dasa levels if omitted — pass explicitly for any other screen. */
+  eventTagsCsv?: string;
+  algorithmNamesCsv?: string;
+  ayanamsaName?: string;
+  daysPerPixelOverride?: number;
 }) {
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +65,11 @@ export function EventsChartViewer({
     setLoading(true);
     setError(null);
     setCursorX(null);
-    getEventsChartSvg(apiUrlDirect, person, preset)
+    const options = { eventTagsCsv, algorithmNamesCsv, ayanamsaName, daysPerPixelOverride };
+    const request = customRange
+      ? getEventsChartSvgCustomRange(apiUrlDirect, person, customRange, options)
+      : getEventsChartSvg(apiUrlDirect, person, preset, options);
+    request
       .then((result) => {
         if (!cancelled) setSvg(result);
       })
@@ -63,7 +82,8 @@ export function EventsChartViewer({
     return () => {
       cancelled = true;
     };
-  }, [apiUrlDirect, person, preset]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiUrlDirect, person, preset, customRange, eventTagsCsv, algorithmNamesCsv, ayanamsaName, daysPerPixelOverride]);
 
   const eventRects = useMemo(() => (svg ? parseEventRects(svg) : []), [svg]);
   // Every <rect>'s raw x/y is visually shifted on-screen by this much (EventsChartFactory.cs's
