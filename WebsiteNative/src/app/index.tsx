@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { Icon, type IconName } from '@/components/Icon';
 import { useTheme } from '@/hooks/use-theme';
 import { PageRoute } from '@/constants/routes';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -16,7 +16,9 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 type QuickLink = {
   route: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  image: any; // RN image require() result (a numeric asset id at runtime)
+  image?: any; // RN image require() result (a numeric asset id at runtime)
+  icon?: IconName; // used instead of a photo when no card image asset exists yet
+  iconColor?: string;
   title: string;
   description: string;
 };
@@ -88,19 +90,26 @@ const QUICK_LINKS: QuickLink[] = [
     title: 'Sunrise Time',
     description: "Time when Sun's disc center meets the horizon",
   },
+  {
+    route: PageRoute.VedicBirthday,
+    icon: 'moon',
+    iconColor: '#F5C518',
+    title: 'Vedic Birthday',
+    description: 'Find your birth tithi’s recurring date each year',
+  },
+  {
+    route: PageRoute.FestivalCalendar,
+    icon: 'calendar',
+    iconColor: '#D64545',
+    title: 'Festival Calendar',
+    description: 'Diwali, Holi & more computed fresh for any year',
+  },
 ];
-
-// Old Razor page reshuffled the card order with Random() "for newness effect"
-// on every load; kept as a one-time shuffle per mount here.
-function shuffle<T>(list: T[]): T[] {
-  return [...list].sort(() => Math.random() - 0.5);
-}
 
 export default function HomeScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const quickLinks = useMemo(() => shuffle(QUICK_LINKS), []);
 
   const columns = width >= 900 ? 3 : width >= 650 ? 2 : 1;
   const cardWidthPercent = 100 / columns;
@@ -118,13 +127,19 @@ export default function HomeScreen() {
         </ThemedView>
 
         <ThemedView style={styles.grid}>
-          {quickLinks.map((link) => (
+          {QUICK_LINKS.map((link) => (
             <Pressable
               key={link.title}
               onPress={() => router.push(`/${link.route}` as never)}
               style={[styles.cardWrapper, { width: `${cardWidthPercent}%` }]}>
               <ThemedView style={[styles.card, { borderColor: theme.backgroundSelected }]}>
-                <Image source={link.image} style={styles.cardImage} resizeMode="cover" />
+                {link.image ? (
+                  <Image source={link.image} style={styles.cardImage} resizeMode="cover" />
+                ) : (
+                  <ThemedView style={[styles.cardIconBadge, { backgroundColor: `${link.iconColor ?? theme.text}22` }]}>
+                    <Icon name={link.icon ?? 'sparkles'} size={26} color={link.iconColor ?? theme.text} />
+                  </ThemedView>
+                )}
                 <ThemedView style={styles.cardBody}>
                   <ThemedText type="smallBold" numberOfLines={1}>
                     {link.title}
@@ -179,6 +194,14 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     borderRadius: 8,
     margin: Spacing.two,
+  },
+  cardIconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    margin: Spacing.two,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cardBody: {
     flex: 1,

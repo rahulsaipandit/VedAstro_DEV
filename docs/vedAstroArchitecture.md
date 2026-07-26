@@ -651,6 +651,86 @@ tests assert the astronomical tithi/month directly and only loosely sanity-check
 civil date (within ~1-2 days), since that civil convention is a separate concern from the
 tithi/month search itself.
 
+### Choghadiya & Daily Panchang (day-detail view)
+
+Follow-up to the Festival Calendar Generator: a day-detail Panchang view, reachable by tapping a
+festival on the WebsiteNative calendar page, offering **two** user-selectable presentations of the
+same day — mirroring how the two reference repos originally compared each specialize in one of
+them (see the "Adhika-Masa Detection & Festival Calendar Generator" section's comparison above):
+
+- `Calculate.ChoghadiyaPeriods(Time date)` (new file, `Library/Logic/Calculate/Panchang.cs`) —
+  16 named, qualified time windows (8 day + 8 night), the classical Choghadiya electional-timing
+  system. Conceptually the same algorithm as
+  [`vishalnagda1/choghadiya`](https://github.com/vishalnagda1/choghadiya) (day/night each divided
+  into 8 equal parts between sunrise/sunset, weekday determines the starting name of a fixed
+  7-name cycle) — not diffed line-by-line against that repo's actual source, since GitHub was
+  unreachable from this environment for the remainder of this work; the weekday tables and 8-part
+  division are standard, uncontested Panchang material rather than one project's original
+  derivation. Built entirely on VedAstro's own `SunriseTime`/`SunsetTime` (Swiss Ephemeris
+  backed), not a ported sunrise formula. Uses the **Vedic (sunrise-anchored) weekday** — the
+  pre-existing `Calculate.DayOfWeek(Time)` (`CoreRelationships.cs`), not the civil-midnight
+  `DateTimeOffset.DayOfWeek` — since the Hindu day, and therefore which weekday's Choghadiya table
+  applies, begins at sunrise, not midnight. Verified against the classical day-start-name table
+  for all 7 weekdays in `LibraryTests/Logic/Calculate/PanchangTests.cs`.
+- `Calculate.DailyPanchang(Time time)` (same file) — the 5 core Panchang limbs (Tithi, Vara,
+  Nakshatra, Yoga, Karana) plus Sunrise/Sunset, the same elements
+  [`Vedic-Panchanga/Shri-Jagannath-Panchang`](https://github.com/Vedic-Panchanga/Shri-Jagannath-Panchang)'s
+  engine computes, but composed here from pre-existing VedAstro calculators
+  (`LunarDay`/`LunarMonth`/`NithyaYoga`/`Karana`/`DayOfWeek`/`SunriseTime`/`SunsetTime`) rather
+  than ported math — `NithyaYoga`/`Karana` in particular already existed, fully implemented, in
+  `Core.cs` and just needed wiring together; they were not written for this feature. Deliberately
+  excludes HoraLord/DishaShool/IshtaKaala, which the older, unused `PanchangaTable` data holder
+  (`Library/Data/PanchangaTable.cs`) also models fields for but nothing in the codebase has ever
+  computed — left out rather than filled with placeholder values, since each needs its own
+  dedicated formula and verification.
+- A recurring naming collision handled throughout this codebase (and in this new file): several
+  methods share a name with their own return type (`Calculate.LunarMonth`/`enum LunarMonth`,
+  `Calculate.Karana`/`enum Karana`, `Calculate.DayOfWeek`/`enum DayOfWeek`). Enum-member access
+  (`DayOfWeek.Sunday`) resolves to the *method* group first inside `Calculate` and fails to
+  compile — every such reference needs `global::VedAstro.Library.X.Member` — while plain type
+  positions (parameter/return types, `new X(...)`, or a call like `DayOfWeek(time)`) resolve fine
+  unqualified. `ConstellationToLunarMonth`'s pre-existing code already worked around this; the
+  Choghadiya weekday tables needed the same treatment.
+
+Frontend: `WebsiteNative/src/app/FestivalCalendar.tsx` (new page, added to `NAV_GROUPS`) takes a
+year + `GeoLocationInput`, lists that year's festivals sorted chronologically via
+`Calculate.FestivalCalendar`, each row showing a `MoonPhaseIcon` (`src/components/MoonPhaseIcon.tsx`,
+new) rendered from the festival's known tithi (client-side, no extra API call — each festival's
+tithi is already fixed by its `FestivalDate` mapping) using the standard two-arc SVG "lune"
+technique, conceptually adapted from
+[`Vedic-Panchanga/moon-phase-widget`](https://github.com/Vedic-Panchanga/moon-phase-widget) (again
+not diffed line-by-line — GitHub was unreachable while this was built). Tapping a festival opens
+`PanchangDetailSheet.tsx` (new), a bottom sheet with a Choghadiya/Traditional-Panchang mode toggle
+backed by the two Library calculators above.
+
+**Side-by-side reference copy.** GitHub access came back later, so
+`Vedic-Panchanga/Shri-Jagannath-Panchang`'s `SJPL_5.08.html` (commit `e442e8d`, 13 Oct 2022) was
+fetched byte-for-byte and committed verbatim to
+`WebsiteNative/public/reference/ShriJagannathPanchang.html`, with only an HTML-comment attribution
+header prepended (source URL, commit, original authorship per that repo's README, and the note
+that no license was declared upstream at the time of copying) — the calculator's own markup/script
+is untouched below that comment. `public/` is Expo Router's web-only static-passthrough directory,
+so this is a plain static asset: no tests, no API, not wired into any VedAstro calculator.
+`WebsiteNative/src/app/ComparePanchangEngines.tsx` (new page, added to `NAV_GROUPS`) is the
+in-app explanation — a prose summary of the four differences above (ephemeris source, tithi-search
+precision, Adhika-masa detection, architecture) plus a button opening the reference copy (native
+platforms open the GitHub source instead, since there's no bundled equivalent of a web-only static
+file on iOS/Android).
+
+**Home page.** `WebsiteNative/src/app/index.tsx`'s Quick Links grid gained entries for Vedic
+Birthday and Festival Calendar. Every existing entry uses a bespoke photo card
+(`assets/images/quicklinks/*.jpg`), but no image-generation tool was available while building
+this, so `QuickLink`'s `image` field was made optional and paired with a new `icon`/`iconColor`
+fallback — these two entries render a Lucide icon (`moon`, `calendar`) in a tinted badge instead
+of a photo, same card footprint. A proper photo card for each can replace the icon fallback later
+without any other changes.
+
+Adding these two surfaced a separate, pre-existing quirk: the grid was reshuffled with
+`Math.random()` on every mount (a deliberate one-time-shuffle-per-load port of the old Razor
+page's "for newness effect" behavior). Reported as unwanted - "seem to be added in random order
+each time" - so the shuffle was removed; `QUICK_LINKS` now renders in its declared array order,
+which is fixed and predictable across reloads.
+
 ## Astrological Chart and Report Generation
 
 ## Diagram 6

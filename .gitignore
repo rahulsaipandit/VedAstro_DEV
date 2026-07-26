@@ -414,6 +414,10 @@ HuggingFace/RawRequestStatistic.csv
 /API/FrontDesk/MaintenanceAPI.cs
 Setup.md
 
+# Local disk chart cache (API/appsettings.json's ChartCacheDirectory) - generated per request,
+# not source; each dev's cache fills up with test-run artifacts like these.
+API/ChartCache/*
+
 docs/__azurite_db_blob__.json
 docs/__azurite_db_blob_extent__.json
 docs/__azurite_db_queue__.json

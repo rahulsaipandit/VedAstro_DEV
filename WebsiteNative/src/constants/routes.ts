@@ -36,6 +36,7 @@ export const PageRoute = {
   APIBuilder: 'APIBuilder',
   VedicBirthday: 'VedicBirthday',
   FestivalCalendar: 'FestivalCalendar',
+  ComparePanchangEngines: 'ComparePanchangEngines',
 
   // Match
   Match: 'Match',

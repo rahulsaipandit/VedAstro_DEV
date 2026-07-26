@@ -24,6 +24,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Good Time Finder', route: PageRoute.GoodTimeFinder },
       { label: 'Vedic Birthday', route: PageRoute.VedicBirthday },
       { label: 'Festival Calendar', route: PageRoute.FestivalCalendar },
+      { label: 'Compare Panchang Engines', route: PageRoute.ComparePanchangEngines },
       { label: 'AI Chat', route: PageRoute.ChatAPI },
       { label: 'Numerology', route: PageRoute.Numerology },
       { label: 'Stars Above Me', route: PageRoute.StarsAboveMe },
