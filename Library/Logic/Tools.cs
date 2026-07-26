@@ -3658,6 +3658,10 @@ namespace VedAstro.Library
         public static dynamic ephemeris_swe_calc(Time time, int swissPlanet)
         {
             //Converts LMT to UTC (GMT)
+            //NOTE: SEFLG_SPEED is deliberately left out, so results[3..5] (Speed*) below are always 0,
+            //not real daily-motion data. This means SwissEphemeris(PlanetName,Time)'s public API result
+            //fields SpeedLongitude/SpeedLatitude/SpeedDistance are placeholders, not live values. Add
+            //SwissEph.SEFLG_SPEED to iflag if a caller (e.g. retrograde detection) ever needs them.
             int iflag = 2;//SwissEph.SEFLG_SWIEPH;  //+ SwissEph.SEFLG_SPEED;
             double[] results = new double[6];
             string err_msg = "";
