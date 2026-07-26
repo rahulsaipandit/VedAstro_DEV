@@ -246,6 +246,13 @@ namespace VedAstro.Library
         /// entirely within sidereal Karka (Cancer), immediately followed by the regular/Nija
         /// Shravana, both correctly verified against that date and against Ganesh Chaturthi
         /// (Bhadrapada Shukla Chaturthi) landing in the following month, 19/09/2023.
+        ///
+        /// Only Amanta is implemented here - github.com/Vedic-Panchanga/sastro.mant's calendar
+        /// (see its ExplainCalendar.tsx) supports both Amanta and Purnimanta (full-moon-to-full-
+        /// moon) month-start reckoning, which is the convention most North Indian sources name
+        /// festivals/months by. Diffing month names against that or another Purnimanta source will
+        /// show an off-by-one-month mismatch during Krishna-paksha - see
+        /// <see cref="Calculate.FestivalDate"/>'s doc comment for the exact shift rule.
         /// </summary>
         public static LunarMonth LunarMonth(Time time)
         {

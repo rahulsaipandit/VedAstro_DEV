@@ -72,13 +72,44 @@ namespace VedAstro.Library.Tests
         {
             var time = new Time("12:00 15/06/2024 +05:30", GeoLocation.Bangalore);
 
+            //noon is after that day's own sunrise, so the day's own sunrise is the anchor instant
+            var sunrise = Calculate.SunriseTime(time);
+
             var panchang = Calculate.DailyPanchang(time);
 
-            Assert.AreEqual(Calculate.LunarDay(time).GetLunarDateNumber(), panchang.Tithi.GetLunarDateNumber());
-            Assert.AreEqual(Calculate.LunarMonth(time), panchang.LunarMonth);
+            Assert.AreEqual(Calculate.LunarDay(sunrise).GetLunarDateNumber(), panchang.Tithi.GetLunarDateNumber());
+            Assert.AreEqual(Calculate.LunarMonth(sunrise), panchang.LunarMonth);
             Assert.AreEqual(Calculate.DayOfWeek(time), panchang.Vara);
-            Assert.AreEqual(Calculate.Karana(time), panchang.Karana);
+            Assert.AreEqual(Calculate.Karana(sunrise), panchang.Karana);
             Assert.IsTrue(panchang.Sunrise.GetStdDateTimeOffset() < panchang.Sunset.GetStdDateTimeOffset());
+        }
+
+        /// <summary>
+        /// A calendar day's Tithi/Nakshatra/Yoga/Karana must be fixed at that Vedic day's sunrise,
+        /// not at whatever raw time-of-day happens to be passed in - see <see cref="Calculate.DailyPanchang"/>'s
+        /// doc comment (compared against github.com/Vedic-Panchanga/sastro.mant's day-boundary
+        /// convention). A time before that calendar date's sunrise belongs to the *previous* Vedic
+        /// day, same rule as <see cref="Calculate.DayOfWeek"/>/<see cref="Calculate.HoraAtBirth"/>.
+        /// </summary>
+        [TestMethod()]
+        public void DailyPanchang_TimeBeforeSunrise_AnchorsToPreviousDaysSunrise()
+        {
+            var location = GeoLocation.Bangalore;
+            var sunriseOn15th = Calculate.SunriseTime(new Time("12:00 15/06/2024 +05:30", location));
+            var sunriseOn14th = Calculate.SunriseTime(new Time("12:00 14/06/2024 +05:30", location));
+
+            //well before sunrise - this instant belongs to the 14th's Vedic day, not the 15th's
+            var earlyMorning = new Time("02:00 15/06/2024 +05:30", location);
+            var panchangBeforeSunrise = Calculate.DailyPanchang(earlyMorning);
+
+            Assert.AreEqual(sunriseOn14th.GetStdDateTimeOffset(), panchangBeforeSunrise.Sunrise.GetStdDateTimeOffset());
+            Assert.AreEqual(Calculate.LunarDay(sunriseOn14th).GetLunarDateNumber(), panchangBeforeSunrise.Tithi.GetLunarDateNumber());
+
+            //well after sunrise on the same calendar date - anchors to that date's own sunrise
+            var afterSunrise = new Time("12:00 15/06/2024 +05:30", location);
+            var panchangAfterSunrise = Calculate.DailyPanchang(afterSunrise);
+
+            Assert.AreEqual(sunriseOn15th.GetStdDateTimeOffset(), panchangAfterSunrise.Sunrise.GetStdDateTimeOffset());
         }
     }
 }

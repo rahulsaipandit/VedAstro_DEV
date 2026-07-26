@@ -19,6 +19,17 @@ namespace VedAstro.Library
     /// the "Adhika-Masa Detection &amp; Festival Calendar Generator" section above), but derived
     /// here from VedAstro's own Swiss-Ephemeris-backed longitudes rather than a ported
     /// manda/sighra epicycle series.
+    ///
+    /// Also compared against github.com/Vedic-Panchanga/sastro.mant (a WASM Swiss-Ephemeris
+    /// front-end, see its src/chart-components/Chart.tsx and src/vedic-components/Vedic.tsx). Its
+    /// tithi formula - <c>ceil(((moon.lon - sun.lon + 360) % 360) / 12)</c> on sidereal longitudes
+    /// - is identical to <see cref="LunarDay"/>. Two real differences found: (1) it defaults to
+    /// True Chitrapaksha ayanamsa (sidMode 27) rather than Lahiri - VedAstro always uses Lahiri, see
+    /// <see cref="CoreTime.Ayanamsa"/>; (2) its month-start rule is "next day after new moon *or*
+    /// full moon" - i.e. it supports both Amanta and Purnimanta reckoning - while
+    /// <see cref="LunarMonth"/> only implements Amanta (new-moon-to-new-moon; see its own doc
+    /// comment). Neither is a bug, just a default/scope mismatch to account for when diffing
+    /// output against that repo.
     /// </summary>
     public partial class Calculate
     {
@@ -27,20 +38,33 @@ namespace VedAstro.Library
         /// for the calendar day containing <paramref name="time"/> - <see cref="NithyaYoga"/> and
         /// <see cref="Karana"/> are pre-existing calculators (`Core.cs`), reused as-is here. See
         /// <see cref="DailyPanchang"/> for what is and isn't included.
+        ///
+        /// Tithi/LunarMonth/Nakshatra/Yoga/Karana are all evaluated at that Vedic day's *sunrise*,
+        /// not at the raw <paramref name="time"/> passed in - the classical convention (and the one
+        /// github.com/Vedic-Panchanga/sastro.mant documents: "solar day's name is following lunar
+        /// day at sunrise") is that a calendar day's Panchang is fixed at sunrise and holds for the
+        /// whole day, so a caller passing e.g. midnight or noon must still get the same limbs as one
+        /// passing sunrise itself. Uses the same before-sunrise-means-previous-day rule as
+        /// <see cref="DayOfWeek"/>/<see cref="HoraAtBirth"/>.
         /// </summary>
         public static DailyPanchang DailyPanchang(Time time)
         {
-            var nakshatra = ConstellationAtLongitude(PlanetNirayanaLongitude(Moon, time));
+            var sunriseSameDate = SunriseTime(time);
+            var effectiveSunrise = time.GetLmtDateTimeOffset() < sunriseSameDate.GetLmtDateTimeOffset()
+                ? SunriseTime(new Time(time.GetLmtDateTimeOffset().DateTime.AddDays(-1), time.GetStdDateTimeOffset().Offset, time.GetGeoLocation()))
+                : sunriseSameDate;
+
+            var nakshatra = ConstellationAtLongitude(PlanetNirayanaLongitude(Moon, effectiveSunrise));
 
             return new DailyPanchang(
-                LunarDay(time),
-                LunarMonth(time),
+                LunarDay(effectiveSunrise),
+                LunarMonth(effectiveSunrise),
                 DayOfWeek(time),
                 nakshatra,
-                NithyaYoga(time),
-                Karana(time),
-                SunriseTime(time),
-                SunsetTime(time));
+                NithyaYoga(effectiveSunrise),
+                Karana(effectiveSunrise),
+                effectiveSunrise,
+                SunsetTime(effectiveSunrise));
         }
 
         private static readonly ChoghadiyaName[] ChoghadiyaCycle =

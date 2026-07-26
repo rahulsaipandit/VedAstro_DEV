@@ -18,6 +18,10 @@ namespace VedAstro.Library
         /// <summary>
         /// Sidereal mode (ayanamsa) used for all sidereal (Nirayana) calculations.
         /// Lahiri is the standard ayanamsa used in mainstream Vedic astrology.
+        ///
+        /// Note: github.com/Vedic-Panchanga/sastro.mant's Vedic chart page defaults to sidMode 27
+        /// (True Chitrapaksha), not Lahiri (its sidMode 1) - a settings default difference to
+        /// account for when comparing longitudes against that repo, not a methodology bug.
         /// </summary>
         public static int Ayanamsa = SwissEph.SE_SIDM_LAHIRI;
 
