@@ -1,15 +1,20 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BirthTimeInput, type BirthTimeInputValue } from '@/components/BirthTimeInput';
+import { PersonSelector } from '@/components/PersonSelector';
+import { useTheme } from '@/hooks/use-theme';
 import { useAppStore } from '@/store/useAppStore';
-import { buildBirthTimeJsonFromWallClock } from '@/lib/time';
+import { buildBirthTimeJsonFromWallClock, type BirthTimeJson } from '@/lib/time';
 import { getTimezoneOffsetForLocation, type GeoLocation } from '@/lib/api/geo';
 import { getVedicBirthDate, getLunarDay, type LunarDayInfo } from '@/lib/api/vedicBirthday';
+import type { Person } from '@/lib/api/person';
 import { showErrorToast } from '@/lib/toast';
 import { Spacing } from '@/constants/theme';
+
+const AccentColor = '#2F6FED';
 
 const SEATTLE_LOCATION: GeoLocation = { name: 'Seattle', longitude: -122.3321, latitude: 47.6062 };
 
@@ -30,35 +35,52 @@ type Result = {
  * See docs/vedAstroArchitecture.md's "Vedic Birthday" section for the search algorithm.
  */
 export default function VedicBirthdayScreen() {
+  const theme = useTheme();
   const apiUrlDirect = useAppStore((s) => s.apiUrlDirect());
+  const debugMode = useAppStore((s) => s.debugMode);
+  const [useSavedProfile, setUseSavedProfile] = useState(false);
+  const [selectedPerson, setSelectedPerson] = useState<Person | null>(null);
   const [birthTime, setBirthTime] = useState<BirthTimeInputValue>(blankBirthTime);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
 
   const currentYear = new Date().getFullYear();
 
-  async function handleCalculate() {
+  async function resolveBirthTime(): Promise<BirthTimeJson | null> {
+    if (useSavedProfile) {
+      if (!selectedPerson) {
+        showErrorToast('Please select a saved person');
+        return null;
+      }
+      return selectedPerson.birthTime;
+    }
+
     if (!birthTime.dd || !birthTime.mm || !birthTime.yyyy || !birthTime.hh || !birthTime.min) {
       showErrorToast('Please fill in the full birth time');
-      return;
+      return null;
     }
+    const offset = await getTimezoneOffsetForLocation(
+      apiUrlDirect,
+      birthTime.location,
+      new Date(Date.UTC(Number(birthTime.yyyy), Number(birthTime.mm) - 1, Number(birthTime.dd)))
+    );
+    return buildBirthTimeJsonFromWallClock(
+      birthTime.dd,
+      birthTime.mm,
+      birthTime.yyyy,
+      birthTime.hh,
+      birthTime.min,
+      offset,
+      birthTime.location
+    );
+  }
+
+  async function handleCalculate() {
     setResult(null);
     setLoading(true);
     try {
-      const offset = await getTimezoneOffsetForLocation(
-        apiUrlDirect,
-        birthTime.location,
-        new Date(Date.UTC(Number(birthTime.yyyy), Number(birthTime.mm) - 1, Number(birthTime.dd)))
-      );
-      const time = buildBirthTimeJsonFromWallClock(
-        birthTime.dd,
-        birthTime.mm,
-        birthTime.yyyy,
-        birthTime.hh,
-        birthTime.min,
-        offset,
-        birthTime.location
-      );
+      const time = await resolveBirthTime();
+      if (!time) return;
 
       const matchedTime = await getVedicBirthDate(apiUrlDirect, time, currentYear);
       const tithi = await getLunarDay(apiUrlDirect, matchedTime);
@@ -85,7 +107,26 @@ export default function VedicBirthdayScreen() {
           your Vedic birthday for {currentYear}.
         </ThemedText>
 
-        <BirthTimeInput apiUrlDirect={apiUrlDirect} value={birthTime} onChange={setBirthTime} />
+        <ThemedView style={styles.savedRow}>
+          <ThemedText type="smallBold">Use saved profile</ThemedText>
+          <Switch
+            value={useSavedProfile}
+            onValueChange={setUseSavedProfile}
+            trackColor={{ true: AccentColor, false: theme.backgroundSelected }}
+            thumbColor="#ffffff"
+          />
+        </ThemedView>
+
+        {useSavedProfile ? (
+          <PersonSelector label="Person" selectedPerson={selectedPerson} onSelectPerson={setSelectedPerson} />
+        ) : (
+          <BirthTimeInput
+            apiUrlDirect={apiUrlDirect}
+            value={birthTime}
+            onChange={setBirthTime}
+            defaultCountry={debugMode ? 'India' : 'United States'}
+          />
+        )}
 
         <Pressable onPress={handleCalculate} disabled={loading} style={styles.calculateButton}>
           {loading ? (
@@ -128,6 +169,11 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     marginBottom: Spacing.one,
+  },
+  savedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   calculateButton: {
     backgroundColor: '#0d6efd',

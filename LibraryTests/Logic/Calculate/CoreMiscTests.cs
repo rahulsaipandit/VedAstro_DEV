@@ -79,18 +79,23 @@ namespace VedAstro.Library.Tests
         }
 
         /// <summary>
-        /// Searching the birth year itself should converge immediately on (very near) birthTime,
-        /// since the starting guess already has zero elongation difference from the natal value.
+        /// Searching the birth year itself must land back on the same tithi, in the same Nija
+        /// lunar month and year as birth - the search targets the tithi's midpoint (see
+        /// FindTithiInstant), so it isn't expected to reproduce birthTime's exact instant, just the
+        /// same tithi/month/year.
         /// </summary>
         [TestMethod()]
-        public void VedicBirthDate_SameYearAsBirth_ReturnsBirthTime()
+        public void VedicBirthDate_SameYearAsBirth_ReturnsSameTithiMonthAndYear()
         {
             var birthTime = CalculateTests.StandardHoroscope; // 14:20 16/10/1918 +05:30
+            var natalTithi = Calculate.LunarDay(birthTime).GetLunarDateNumber();
+            var natalMonth = Calculate.LunarMonth(birthTime);
 
             var result = Calculate.VedicBirthDate(birthTime, birthTime.GetStdDateTimeOffset().Year);
 
-            var hoursDiff = Math.Abs((result.GetStdDateTimeOffset() - birthTime.GetStdDateTimeOffset()).TotalHours);
-            Assert.IsTrue(hoursDiff < 0.01, $"Expected result to be essentially birthTime, was {hoursDiff} hours away");
+            Assert.AreEqual(natalTithi, Calculate.LunarDay(result).GetLunarDateNumber());
+            Assert.AreEqual(natalMonth, Calculate.LunarMonth(result));
+            Assert.AreEqual(birthTime.GetStdDateTimeOffset().Year, result.GetStdDateTimeOffset().Year);
         }
 
         /// <summary>
@@ -111,6 +116,30 @@ namespace VedAstro.Library.Tests
 
             var daysFromAnniversary = Math.Abs((result.GetStdDateTimeOffset().DayOfYear - birthTime.GetStdDateTimeOffset().DayOfYear));
             Assert.IsTrue(daysFromAnniversary < 15, $"Expected result near the birth anniversary, was {daysFromAnniversary} days off");
+        }
+
+        /// <summary>
+        /// Regression test: for a birth decades in the past, the result must land in the SAME
+        /// named lunar month as birth, not a neighboring one. A naive "nearest occurrence to the
+        /// Gregorian anniversary" search can converge on the wrong month once the anniversary drifts
+        /// far enough from the true recurrence (a tithi can land up to ~2 weeks either side of the
+        /// anniversary) - reported live for a birth on 27/07/1974 (Sraavana Shukla Navami), whose
+        /// 2026 (52 years later) Vedic birthday was wrongly computed a full lunar month early, in
+        /// Aashaadha instead of Sraavana.
+        /// </summary>
+        [TestMethod()]
+        public void VedicBirthDate_ManyDecadesLater_StaysInSameNamedLunarMonth()
+        {
+            var srinagar = new GeoLocation("Srinagar", 74.7973, 34.0837);
+            var birthTime = new Time("03:18 27/07/1974 +05:30", srinagar);
+            var natalTithi = Calculate.LunarDay(birthTime).GetLunarDateNumber();
+            var natalMonth = Calculate.LunarMonth(birthTime);
+
+            var result = Calculate.VedicBirthDate(birthTime, 2026);
+
+            Assert.AreEqual(natalMonth, Calculate.LunarMonth(result), "Result landed in the wrong lunar month");
+            Assert.AreEqual(natalTithi, Calculate.LunarDay(result).GetLunarDateNumber());
+            Assert.AreEqual(2026, result.GetStdDateTimeOffset().Year);
         }
 
         /// <summary>

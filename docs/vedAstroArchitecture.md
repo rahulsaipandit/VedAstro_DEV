@@ -510,32 +510,47 @@ before this feature was written; only the search routine below was new.
 - **Timezone/location** determine exactly which tithi is active at a given moment, same as any
   other panchang element already computed elsewhere in this codebase (`PanchangaTable.cs`).
 
-`Calculate.VedicBirthDate(Time birthTime, int year)` (`Library/Logic/Calculate/Core.cs`, added
-directly below `LunarDay`) implements this as a Newton-style search, deliberately modeled on the
-existing `TajikaDateForYear`/`FindSyzygy` searches in `CoreMiscExtra.cs` (solar-return and
-new-moon search respectively) rather than introducing a new search idiom:
+**Revised design (superseding the original Newton-anchored-on-anniversary search below).**
+`Calculate.VedicBirthDate(Time birthTime, int year)` (`Library/Logic/Calculate/Core.cs`) originally
+ran a Newton-style search on Moon-Sun elongation, anchored on the Gregorian calendar anniversary of
+birth (`birthTime` advanced by `year - birthYear` years, then refined until elongation matched the
+natal value to `< 0.0005°`), modeled on `TajikaDateForYear`/`FindSyzygy` in `CoreMiscExtra.cs`.
 
-1. Compute the natal Moon-Sun elongation `((moon - sun) mod 360)` at `birthTime` — this is the
-   same 12°-banded value `LunarDay` derives the 1-30 tithi number from, just kept as a
-   continuous angle instead of rounded to a whole tithi, so the recurrence is an exact moment,
-   not merely "some day this tithi is active".
-2. Coarse starting guess: `birthTime` advanced by `year - birthYear` years (via `Time.AddYears`,
-   which uses a fixed 365-day year — a few days of drift per decade, negligible against the
-   ~29.5-day synodic cycle being searched). Anchoring the guess on the Gregorian anniversary is
-   what selects the one correct occurrence out of the ~12 times a year any given tithi recurs;
-   this is the same role `TajikaDateForYear`'s year-offset guess plays for its once-a-year solar
-   condition.
-3. Up to 8 Newton-style refinement iterations using average synodic degrees/day
-   (`360 / 29.530588`), converging when the signed elongation difference from natal is
-   `< 0.0005°` — copied directly from `FindSyzygy`'s convergence pattern.
+This shipped, then broke in production for a real user: a birth on 27/07/1974 in Srinagar computed
+its 2026 Vedic birthday (52 years later) as falling in **Aashaadha**, a full lunar month before the
+person's actual birth month, **Sraavana**. Root cause: a tithi's recurrence can land up to roughly
+half a synodic month (~14.75 days) either side of the Gregorian anniversary, and the search simply
+converges on whichever occurrence is *nearest* to the anchor point — for a birth many years in the
+past, that nearest occurrence is not necessarily the one in the *correctly named* lunar month. (A
+smaller, related bug was also fixed in the same investigation: the anchor itself used `Time.AddYears`,
+a fixed-365-day-per-year approximation that drifts ~0.25 days/year — about 13 days over 52 years —
+compounding the problem, though fixing only that wasn't sufficient on its own to fix the
+wrong-month result.)
 
-Deliberately **not** implemented as: a day-by-day linear scan (the search converges in a handful
-of iterations, same as its siblings); a combined result struct bundling the matched date with
+The fix: stop treating this as a standalone elongation search and instead reuse
+`FindTithiInNijaMonth` — the same (lunar month, tithi, year) search `FestivalDate` already uses
+below — anchored on the **named** lunar month the person was actually born in
+(`LunarMonth(birthTime)`), not on Gregorian-calendar proximity:
+
+1. Get the birth tithi (`LunarDay(birthTime).GetLunarDateNumber()`) and birth month
+   (`LunarMonth(birthTime)`).
+2. If the birth itself fell within an Adhika (leap) month, fall back to that month's Nija (base)
+   name — an Adhika month is a rare, "extra" insertion that shouldn't recur yearly on its own.
+3. Call `FindTithiInNijaMonth(nijaMonth, birthTithi, year, birthTime.GetGeoLocation())` — the exact
+   same synodic-month scan + Newton-refined tithi search `Calculate.FestivalDate` uses, which is
+   what guarantees landing in the *correct* lunar month regardless of how far `year` is from the
+   birth year, rather than merely "the nearest occurrence of this tithi to some anchor point."
+
+Regression test (`VedicBirthDate_ManyDecadesLater_StaysInSameNamedLunarMonth`,
+`LibraryTests/Logic/Calculate/CoreMiscTests.cs`) encodes the exact reported case — asserting the
+2026 result for that 1974 Srinagar birth lands back in Sraavana, not Aashaadha.
+
+Deliberately **not** implemented: a combined result struct bundling the matched date with
 tithi/paksha metadata (the API stays granular — one call per atomic fact, matching how
 `LunarDay`, `SunriseTime`, etc. are each their own endpoint and get composed client-side, e.g.
 `Horoscope/[personId].tsx`'s `Promise.allSettled` pattern); or leap-tithi (kshaya/vriddhi)
 detection within a single tithi — that's a separate concern from Adhika-**masa** (leap month),
-which is now implemented (see below) since the follow-up Festival Calendar Generator needed it.
+which is implemented (see below).
 
 Exposed automatically via the existing `/api/Calculate/{calculatorName}/{*fullParamString}`
 reflection dispatcher (`API/FrontDesk/OpenAPI.cs`) — no new endpoint wiring required, since

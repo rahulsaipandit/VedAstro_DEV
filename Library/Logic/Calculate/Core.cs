@@ -296,49 +296,30 @@ namespace VedAstro.Library
         }
 
         /// <summary>
-        /// Gets a person's "Vedic birthday" for a given calendar year - the exact moment the
-        /// Moon-Sun elongation (tithi) returns to the same value it held at birth, searched
-        /// nearest to that year's Gregorian month/day anniversary of birth. This is the tithi-based
-        /// equivalent of a Gregorian birthday recurring every year: since a Hindu festival like
-        /// Ramnavami is defined by tithi rather than a fixed Gregorian date, a person's own birth
-        /// tithi is treated the same way and lands on a different Gregorian date each year.
-        /// Uses the same Newton-style search as <see cref="TajikaDateForYear"/> (its solar-return
-        /// equivalent), but converges on Moon-Sun elongation instead of solar longitude.
+        /// Gets a person's "Vedic birthday" for a given calendar year - the tithi (lunar day) they
+        /// were born on, recurring within the Nija (regular) occurrence of the same named lunar
+        /// month they were born in. This is the tithi-based equivalent of a Gregorian birthday
+        /// recurring every year: since a Hindu festival like Ramnavami is defined by tithi + lunar
+        /// month rather than a fixed Gregorian date, a person's own birth tithi is treated the same
+        /// way and lands on a different Gregorian date each year. Reuses
+        /// <see cref="FindTithiInNijaMonth"/> (the same search <see cref="FestivalDate"/> uses) -
+        /// anchoring on the correctly *named* lunar month, not merely the nearest occurrence to the
+        /// Gregorian anniversary, matters: a tithi can recur anywhere within roughly ±2 weeks of the
+        /// anniversary, so for a birth many years in the past a naive nearest-occurrence search can
+        /// converge on an occurrence in a neighboring (wrong) lunar month entirely. If the birth
+        /// itself fell within an Adhika (leap) month, this searches that same base month's Nija
+        /// occurrence instead (an Adhika month is a rare, "extra" insertion - not what should recur
+        /// yearly).
         /// </summary>
         public static Time VedicBirthDate(Time birthTime, int year)
         {
-            double Elongation(Time t)
-            {
-                var moon = PlanetNirayanaLongitude(Moon, t).TotalDegrees;
-                var sun = PlanetNirayanaLongitude(Sun, t).TotalDegrees;
-                return ((moon - sun) % 360.0 + 360.0) % 360.0;
-            }
+            var birthTithi = LunarDay(birthTime).GetLunarDateNumber();
+            var birthMonth = LunarMonth(birthTime);
 
-            var natalElongation = Elongation(birthTime);
+            //enum lists all 12 Nija months first (1-12), then their 12 Adhika variants (13-24)
+            var nijaMonth = (int)birthMonth > 12 ? (LunarMonth)((int)birthMonth - 12) : birthMonth;
 
-            //coarse starting guess: same calendar month/day as birth, in the requested year.
-            //anchoring here (rather than an arbitrary point in the year) is what selects the one
-            //occurrence, out of the ~12 times a year any given tithi recurs, that is actually the
-            //person's Vedic birthday rather than some unrelated same-tithi day elsewhere in the year
-            var birthYear = birthTime.GetStdDateTimeOffset().Year;
-            var yearsToAdd = year - birthYear;
-            var approxTime = yearsToAdd >= 0 ? birthTime.AddYears(yearsToAdd) : birthTime;
-
-            const double synodicDegreesPerDay = 360.0 / 29.530588; //average relative Moon-Sun speed
-
-            var candidate = approxTime;
-            for (var i = 0; i < 8; i++)
-            {
-                var currentElongation = Elongation(candidate);
-                var diff = ((natalElongation - currentElongation + 540.0) % 360.0) - 180.0;
-
-                if (Math.Abs(diff) < 0.0005) { break; }
-
-                var adjustDays = diff / synodicDegreesPerDay;
-                candidate = candidate.AddHours(adjustDays * 24);
-            }
-
-            return candidate;
+            return FindTithiInNijaMonth(nijaMonth, birthTithi, year, birthTime.GetGeoLocation());
         }
 
         /// <summary>
