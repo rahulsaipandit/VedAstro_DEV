@@ -296,6 +296,52 @@ namespace VedAstro.Library
         }
 
         /// <summary>
+        /// Gets a person's "Vedic birthday" for a given calendar year - the exact moment the
+        /// Moon-Sun elongation (tithi) returns to the same value it held at birth, searched
+        /// nearest to that year's Gregorian month/day anniversary of birth. This is the tithi-based
+        /// equivalent of a Gregorian birthday recurring every year: since a Hindu festival like
+        /// Ramnavami is defined by tithi rather than a fixed Gregorian date, a person's own birth
+        /// tithi is treated the same way and lands on a different Gregorian date each year.
+        /// Uses the same Newton-style search as <see cref="TajikaDateForYear"/> (its solar-return
+        /// equivalent), but converges on Moon-Sun elongation instead of solar longitude.
+        /// </summary>
+        public static Time VedicBirthDate(Time birthTime, int year)
+        {
+            double Elongation(Time t)
+            {
+                var moon = PlanetNirayanaLongitude(Moon, t).TotalDegrees;
+                var sun = PlanetNirayanaLongitude(Sun, t).TotalDegrees;
+                return ((moon - sun) % 360.0 + 360.0) % 360.0;
+            }
+
+            var natalElongation = Elongation(birthTime);
+
+            //coarse starting guess: same calendar month/day as birth, in the requested year.
+            //anchoring here (rather than an arbitrary point in the year) is what selects the one
+            //occurrence, out of the ~12 times a year any given tithi recurs, that is actually the
+            //person's Vedic birthday rather than some unrelated same-tithi day elsewhere in the year
+            var birthYear = birthTime.GetStdDateTimeOffset().Year;
+            var yearsToAdd = year - birthYear;
+            var approxTime = yearsToAdd >= 0 ? birthTime.AddYears(yearsToAdd) : birthTime;
+
+            const double synodicDegreesPerDay = 360.0 / 29.530588; //average relative Moon-Sun speed
+
+            var candidate = approxTime;
+            for (var i = 0; i < 8; i++)
+            {
+                var currentElongation = Elongation(candidate);
+                var diff = ((natalElongation - currentElongation + 540.0) % 360.0) - 180.0;
+
+                if (Math.Abs(diff) < 0.0005) { break; }
+
+                var adjustDays = diff / synodicDegreesPerDay;
+                candidate = candidate.AddHours(adjustDays * 24);
+            }
+
+            return candidate;
+        }
+
+        /// <summary>
         /// Gets name of Constellation behind the moon at a given time
         /// </summary>
         public static Constellation MoonConstellation(Time time) => PlanetConstellation(Moon, time);

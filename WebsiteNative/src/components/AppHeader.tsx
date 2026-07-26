@@ -22,6 +22,8 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Horoscope', route: PageRoute.Horoscope },
       { label: 'Life Predictor', route: PageRoute.LifePredictor },
       { label: 'Good Time Finder', route: PageRoute.GoodTimeFinder },
+      { label: 'Vedic Birthday', route: PageRoute.VedicBirthday },
+      { label: 'Festival Calendar', route: PageRoute.FestivalCalendar },
       { label: 'AI Chat', route: PageRoute.ChatAPI },
       { label: 'Numerology', route: PageRoute.Numerology },
       { label: 'Stars Above Me', route: PageRoute.StarsAboveMe },

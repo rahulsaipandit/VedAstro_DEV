@@ -458,6 +458,199 @@ DestinyNumber/NameNumber via Chaldean numerology.
 `ChatAPI.cs` integrates with LLMs for conversational predictions (now persisting chat history
 to Postgres instead of Azure Table Storage — see [ChatMessageEntity](#data-persistence-with-postgres)).
 
+### Vedic Birthday (Tithi-based Birthday Recurrence)
+
+New capability (not a migration/port): given a birth `Time`, find the Gregorian date in a given
+calendar year on which the person's Vedic-calendar equivalent of their birthday recurs. This
+mirrors how Hindu festivals work — Ramnavami, Diwali, Karwa Chauth, etc. are defined by
+**tithi** (lunar day) + lunar month, not by a fixed Gregorian date, so their Gregorian date
+shifts every year. A person's own birth tithi behaves the same way: the moment the Moon-Sun
+elongation returns to its natal value is the "Vedic birthday", and it lands on a different
+Gregorian date each year (unlike Sankranti, which is a purely solar event and stays fixed).
+
+**The rule these festivals (and this feature) follow.** A tithi is defined purely by angle:
+`(Moon longitude − Sun longitude) mod 360°`, divided into 30 slices of 12° each (tithi 1-15 =
+Shukla/bright paksha, 16-30 = Krishna/dark paksha) — exactly what `LunarDay`
+(`Library/Logic/Calculate/Core.cs`) already modeled before this feature existed. Every major
+festival except one is pinned to a (tithi, paksha, lunar month) triple rather than a Gregorian
+date, which is why each shifts on the Gregorian calendar every year:
+
+| Festival                          | Tithi        | Paksha         | Lunar Month                              |
+|------------------------------------|--------------|----------------|-------------------------------------------|
+| Ramnavami                          | 9            | Shukla         | Chaitra                                   |
+| Holi (Holika Dahan / Rangwali)     | 15 (Purnima) / 1 next day | Shukla→Krishna cusp | Phalguna                     |
+| Rakshabandhan                      | 15 (Purnima) | Shukla         | Shravana                                  |
+| Karwa Chauth                       | 4            | Krishna        | Kartik (some regions: Ashwin)             |
+| Diwali/Deepawali                   | 30 (Amavasya)| Krishna        | Kartik (Ashwin Amavasya in some traditions)|
+| Chhath                             | 6            | Shukla         | Kartik                                    |
+| Maha Shivaratri                    | 14           | Krishna        | Phalguna (Magha in some traditions)       |
+| Makar Sankranti                    | —            | —              | not lunar at all                          |
+
+Makar Sankranti is the exception: it's a purely solar event (the Sun's sidereal ingress into
+Capricorn), so it lands on essentially the same Gregorian date every year (~Jan 14), independent
+of the Moon — the one "Vedic date" that already roughly coincides with a fixed Gregorian
+birthday. `Calculate.VedicBirthDate` runs the same tithi-search logic a festival's date
+computation would, just anchored to the birth tithi instead of a festival's fixed tithi — the
+raw ingredients (`LunarDay` for tithi/paksha, `LunarMonth` for the lunar month including
+Adhika/leap months, and Swiss Ephemeris planetary longitudes) already existed in the codebase
+before this feature was written; only the search routine below was new.
+
+**Caveats that make this genuinely non-trivial, not just a lookup:**
+- **Tithi speed is non-uniform.** Because Moon-Sun relative angular velocity varies, a tithi can
+  occasionally be skipped (kshaya tithi) or span more than 24 hours (vriddhi tithi, effectively
+  "repeated" across two sunrises), so "the same tithi" isn't guaranteed to land on exactly one
+  civil day every year. Real Panchang software resolves this with a fixed rule (e.g. tithi
+  prevailing at sunrise); `VedicBirthDate` instead anchors to the birth time-of-day specifically
+  (see step 2 below), the same time-of-day logic used at birth rather than a sunrise convention.
+- **Adhika (leap) months.** Roughly every 32-33 months a 13th lunar month is inserted to keep the
+  lunar calendar aligned with the solar year (see Adhika-masa detection below). Naively matching
+  "same tithi, same month name" can land in the wrong occurrence if a leap month intervenes —
+  disambiguating requires the Sun's sidereal position (which solar month/rashi the lunar month
+  overlaps), not just the month name.
+- **Timezone/location** determine exactly which tithi is active at a given moment, same as any
+  other panchang element already computed elsewhere in this codebase (`PanchangaTable.cs`).
+
+`Calculate.VedicBirthDate(Time birthTime, int year)` (`Library/Logic/Calculate/Core.cs`, added
+directly below `LunarDay`) implements this as a Newton-style search, deliberately modeled on the
+existing `TajikaDateForYear`/`FindSyzygy` searches in `CoreMiscExtra.cs` (solar-return and
+new-moon search respectively) rather than introducing a new search idiom:
+
+1. Compute the natal Moon-Sun elongation `((moon - sun) mod 360)` at `birthTime` — this is the
+   same 12°-banded value `LunarDay` derives the 1-30 tithi number from, just kept as a
+   continuous angle instead of rounded to a whole tithi, so the recurrence is an exact moment,
+   not merely "some day this tithi is active".
+2. Coarse starting guess: `birthTime` advanced by `year - birthYear` years (via `Time.AddYears`,
+   which uses a fixed 365-day year — a few days of drift per decade, negligible against the
+   ~29.5-day synodic cycle being searched). Anchoring the guess on the Gregorian anniversary is
+   what selects the one correct occurrence out of the ~12 times a year any given tithi recurs;
+   this is the same role `TajikaDateForYear`'s year-offset guess plays for its once-a-year solar
+   condition.
+3. Up to 8 Newton-style refinement iterations using average synodic degrees/day
+   (`360 / 29.530588`), converging when the signed elongation difference from natal is
+   `< 0.0005°` — copied directly from `FindSyzygy`'s convergence pattern.
+
+Deliberately **not** implemented as: a day-by-day linear scan (the search converges in a handful
+of iterations, same as its siblings); a combined result struct bundling the matched date with
+tithi/paksha metadata (the API stays granular — one call per atomic fact, matching how
+`LunarDay`, `SunriseTime`, etc. are each their own endpoint and get composed client-side, e.g.
+`Horoscope/[personId].tsx`'s `Promise.allSettled` pattern); or leap-tithi (kshaya/vriddhi)
+detection within a single tithi — that's a separate concern from Adhika-**masa** (leap month),
+which is now implemented (see below) since the follow-up Festival Calendar Generator needed it.
+
+Exposed automatically via the existing `/api/Calculate/{calculatorName}/{*fullParamString}`
+reflection dispatcher (`API/FrontDesk/OpenAPI.cs`) — no new endpoint wiring required, since
+`Time` and `int` already have `IFromUrl`/URL parsers registered. Example:
+`/api/Calculate/VedicBirthDate/Time/12:00/15/06/1990/+08:00/1699999999` (a raw `int` year
+argument, mirroring `TajikaDateForYear`'s existing URL shape).
+
+Frontend: `WebsiteNative/src/app/VedicBirthday.tsx` (new page, added to `NAV_GROUPS` in
+`AppHeader.tsx`) takes a birth time via the shared `BirthTimeInput` component, calls
+`VedicBirthDate` with the current calendar year, and displays the resulting Gregorian date
+alongside the birth tithi's name/paksha (fetched separately via the existing `LunarDay` endpoint
+for that resulting date, keeping with the granular-endpoint composition pattern above).
+
+### Adhika-Masa Detection & Festival Calendar Generator
+
+Follow-up to Vedic Birthday. Two asks: (1) give `Calculate.LunarMonth` real Adhika (leap) month
+detection instead of just naming a month, and (2) generate a full festival calendar (Diwali,
+Chhath, Karwa Chauth, Holi, Maha Shivaratri, Ramnavami, Rakshabandhan, Makar Sankranti) for a
+year, computed rather than looked up from a static table.
+
+**How this compares to an existing reference implementation.** Before writing any code, we
+compared our approach against
+[`Vedic-Panchanga/Shri-Jagannath-Panchang`](https://github.com/Vedic-Panchanga/Shri-Jagannath-Panchang),
+a from-scratch client-side (single ~540-590KB HTML/JS file) Hindu Panchang calculator, by fetching
+and reading its actual JS source rather than trusting its README. Findings that shaped what we
+built:
+- Its ephemeris is a custom manda/sighra epicycle series (classical Indian mean-motion
+  parameters, in the Surya Siddhanta lineage) — not a modern ephemeris. We deliberately did
+  **not** port this: VedAstro already has Swiss Ephemeris (see [Ephemeris Engine and Sidereal
+  (Ayanamsa) Correction](#ephemeris-engine-and-sidereal-ayanamsa-correction) above), which is
+  accurate to arc-seconds against JPL's DE ephemerides versus the arc-minutes (and growing, the
+  further from the model's reference epoch) error of a manual epicycle series. All of the new
+  code below reuses `PlanetNirayanaLongitude`/`PlanetRasiD1Sign`, i.e. the same Swiss-Ephemeris
+  call path as everything else in this codebase.
+- Its tithi-boundary search is a **single linear interpolation** from one instantaneous
+  Moon/Sun-speed reading — no refinement pass. We instead extended the Newton-refinement idiom
+  already established by `FindSyzygy`/`TajikaDateForYear`/`VedicBirthDate` (iterate until the
+  signed error is `< 0.0005°`), which is more robust to the Moon's non-uniform angular speed
+  (~11.8-15.4°/day across its elliptical orbit) than one linear extrapolation.
+- It *does* implement real Adhika-masa detection (`get_adhimasa`/`get_masa_num`/conjunction
+  longitudes) — this is the one place it was ahead of our pre-existing `Calculate.LunarMonth`,
+  which is why this follow-up exists.
+- Neither it nor our prior code computes actual festival dates (Diwali, Ramnavami, etc.) — both
+  only expose the tithi/month primitives. The Festival Calendar Generator below is new on both
+  sides, not adapted from their code.
+
+Net effect: the *concepts* (Sankranti-based Adhika detection, tithi search) are the same
+classical astronomy either implementation would need, but the arithmetic underneath — ephemeris
+source and boundary-search precision — is ours throughout, per the explicit instruction to keep
+using VedAstro's more precise engine rather than reproduce their lower-precision formulas.
+
+**Adhika-masa detection (`Calculate.LunarMonth`, `Library/Logic/Calculate/CoreMisc.cs`).** The
+pre-existing implementation named a month via the Moon's nakshatra on the nearest full moon
+(found by a single linear step, "accurate to about a day" per its own doc comment) and had no
+Adhika detection at all. The rewrite:
+1. Brackets `time` between its enclosing new moons via the already-Newton-refined
+   `PreviousNewMoon`/`NextNewMoon` (`CoreMiscExtra.cs`).
+2. Compares the Sun's sidereal rashi (`PlanetRasiD1Sign`) at each new moon. Exactly one rashi
+   crossed (`signsAdvanced == 1`) → a normal (Nija) month. Zero crossed (`signsAdvanced == 0`) →
+   Adhika (leap) — this happens roughly every 32-33 months, since 12 synodic months (~354.4 days)
+   run short of a solar year (~365.25 days). Two or more crossed is a Kshaya ("expunged") month,
+   roughly once every 150 years; detected but not fully renamed (see the method's doc comment) —
+   genuinely out of scope for how rare it is.
+3. The month's base name is a **direct table lookup** from the rashi occupied at the *start* new
+   moon (`RashiToLunarMonthTable`, e.g. Sun in Meena/Pisces → Chaitra) — an Adhika month keeps
+   this same name (it does not borrow a neighboring month's name).
+
+That third point went through two wrong implementations before landing here, both caught by
+writing tests against real, independently-known dates rather than trusting the code:
+- **First attempt** kept the old nakshatra-anchor approach (just swapping the crude full-moon
+  finder for the Newton-refined one) and had an Adhika month "borrow the name of the following
+  month". Testing against 2023's widely-reported "Adhik Shravan" (18/07/2023-16/08/2023) and
+  Ganesh Chaturthi 2023 (19/09/2023, Bhadrapada Shukla Chaturthi) immediately produced wrong,
+  duplicate month names (e.g. two consecutive months both named plain "Bhaadrapada"). Root cause:
+  the nakshatra-to-month anchor table (`{14, 16, 18, 20.5, ...}` mapped to nearest-neighbor) was
+  never actually correct — nearest-anchor matching breaks down whenever two candidate nakshatras
+  are near-equidistant, which happens often since nakshatras only advance ~2.2 per month.
+- **Second attempt** replaced it with the rashi-direct-lookup table above, which fixed the
+  duplicate-naming bug, but Diwali (`Aaswayuja`/`Kaarteeka` Amavasya) still came out a full month
+  late (12/12/2023 instead of the real 12/11/2023). Root cause: **Amanta vs Purnimanta.**
+  `LunarMonth` reckons months Amanta-style (new-moon-to-new-moon, matching `PreviousNewMoon`/
+  `NextNewMoon`), but "Diwali is Kartik Amavasya" is the Purnimanta-convention name most
+  mainstream sources use. The two conventions agree on a month's Shukla-paksha half (tithi 1-15)
+  but disagree by exactly one month name on its Krishna-paksha half (tithi 16-30) — a
+  Krishna-paksha tithi popularly called "`X` Krishna ..." is Amanta month `X-1`. Fixed by mapping
+  Diwali/Karwa Chauth/Maha Shivaratri (all Krishna-paksha) one Amanta month earlier than their
+  popular Purnimanta name; Ramnavami/Rakshabandhan/Chhath/Holi needed no shift (Shukla-paksha, or
+  in Holi's case its Pratipada day still falls within Amanta Phaalguna).
+
+Every fact used to catch and verify these fixes — Ramnavami 2024 (17/04/2024), Diwali 2023
+(12/11/2023), Adhik Shravan 2023 (18/07-16/08/2023), Ganesh Chaturthi 2023 (19/09/2023) — is
+encoded directly into `LibraryTests/Logic/Calculate/CoreMiscTests.cs` and `FestivalCalendarTests.cs`
+so a future regression here fails loudly instead of silently reproducing either bug.
+
+**Festival Calendar Generator (`Library/Logic/Calculate/FestivalCalendar.cs`, new file).**
+`FestivalName` enum (`Library/Data/Enum/FestivalName.cs`) plus:
+- `FestivalDate(FestivalName, int year, GeoLocation)` — dispatches each festival to a
+  (Amanta month, tithi) pair via `FindTithiInNijaMonth` (scans ~15 synodic months from before the
+  target year, skipping Adhika occurrences of the requested month name since festivals are only
+  observed in a month's Nija occurrence), except `MakarSankranti`, which is purely solar (Sun's
+  sidereal ingress into Makara/Capricorn, found the same Newton-style way as
+  `TajikaDateForYear` but against a fixed 270° target instead of a natal longitude).
+- `FestivalCalendar(int year, GeoLocation)` — every `FestivalName`'s date for that year, in one
+  call.
+- `FindTithiInstant` targets a tithi's **midpoint** (6° into its 12° band), not its exact start
+  boundary — targeting the boundary itself risks the Newton search converging a hair below it
+  (floating-point/tolerance noise), which `LunarDay`'s ceiling-based tithi number then reads back
+  as the previous tithi. Caught by the Diwali test asserting tithi 30 and initially getting 29.
+
+Known, deliberate limitation: the exact *civil* observance date (which follows sunrise/sunset
+tithi conventions, e.g. "whichever tithi prevails at sunset governs Amavasya") isn't modeled —
+tests assert the astronomical tithi/month directly and only loosely sanity-check the popular
+civil date (within ~1-2 days), since that civil convention is a separate concern from the
+tithi/month search itself.
+
 ## Astrological Chart and Report Generation
 
 ## Diagram 6

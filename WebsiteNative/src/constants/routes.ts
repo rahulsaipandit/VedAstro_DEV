@@ -34,6 +34,8 @@ export const PageRoute = {
   Horoscope: 'Horoscope',
   FamilyChart: 'FamilyChart',
   APIBuilder: 'APIBuilder',
+  VedicBirthday: 'VedicBirthday',
+  FestivalCalendar: 'FestivalCalendar',
 
   // Match
   Match: 'Match',

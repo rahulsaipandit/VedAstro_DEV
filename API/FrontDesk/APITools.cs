@@ -52,6 +52,19 @@ namespace API
                     var array = new JArray();
                     foreach (var item in list) { array.Add(item.ToJson()); }
                     return array;
+                //e.g. Calculate.FestivalCalendar's Dictionary<FestivalName, Time> - same reasoning
+                //as the IToJson/IEnumerable<IToJson> cases above: values with a hand-written
+                //ToJson() need it honored explicitly, or default reflection silently serializes
+                //their private fields as an empty/wrong-shaped object instead
+                case System.Collections.IDictionary dictionary:
+                    var dictionaryObject = new JObject();
+                    foreach (System.Collections.DictionaryEntry entry in dictionary)
+                    {
+                        dictionaryObject[entry.Key?.ToString() ?? ""] = entry.Value is IToJson entryToJson
+                            ? entryToJson.ToJson()
+                            : JToken.FromObject(entry.Value, PayloadSerializer);
+                    }
+                    return dictionaryObject;
                 default:
                     return JToken.FromObject(payload, PayloadSerializer);
             }

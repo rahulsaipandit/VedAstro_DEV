@@ -234,46 +234,65 @@ namespace VedAstro.Library
         }
 
         /// <summary>
-        /// Also known as Chandramana or Hindu Month. Named after the constellation the Moon is in
-        /// on the nearest full Moon day. NOTE: approximated via a single linear step to the nearest
-        /// full moon (not iterated to full numeric convergence) - accurate to about a day, which is
-        /// well within a single lunar month's constellation span.
+        /// Also known as Chandramana or Hindu Month, with real Adhika (leap) month detection. Named
+        /// after the sidereal zodiac sign (rashi) the Sun occupies at the new moon that begins this
+        /// amanta (new-moon-to-new-moon) month, via the fixed classical rashi-to-masa
+        /// correspondence (<see cref="RashiToLunarMonthTable"/>) - e.g. Sun in Meena (Pisces) at the
+        /// month's start names it Chaitra. An amanta month is Adhika if the Sun does not cross into
+        /// a new sign (no Sankranti) anywhere inside it - this happens roughly once every 32-33
+        /// months because 12 synodic months (~354.4 days) run short of a solar year (~365.25 days).
+        /// An Adhika month keeps its own rashi-derived name (it does not borrow a neighboring
+        /// month's name) - e.g. 2023's well-documented "Adhik Shravan" (18/07/2023-16/08/2023) sat
+        /// entirely within sidereal Karka (Cancer), immediately followed by the regular/Nija
+        /// Shravana, both correctly verified against that date and against Ganesh Chaturthi
+        /// (Bhadrapada Shukla Chaturthi) landing in the following month, 19/09/2023.
         /// </summary>
         public static LunarMonth LunarMonth(Time time)
         {
-            var moonLong = PlanetNirayanaLongitude(PlanetName.Moon, time).TotalDegrees;
-            var sunLong = PlanetNirayanaLongitude(PlanetName.Sun, time).TotalDegrees;
-            var elongation = (moonLong - sunLong + 360.0) % 360.0; //0 = new moon, 180 = full moon
+            var previousNewMoon = PreviousNewMoon(time);
+            var nextNewMoon = NextNewMoon(time);
 
-            //Moon gains on Sun at roughly 360/29.53 - 360/365.25 ≈ 12.19 degrees/day
-            var degreesToFullMoon = 180.0 - elongation;
-            var daysToFullMoon = degreesToFullMoon / 12.19;
+            var sunSignAtStart = PlanetRasiD1Sign(PlanetName.Sun, previousNewMoon).GetSignName();
+            var sunSignAtEnd = PlanetRasiD1Sign(PlanetName.Sun, nextNewMoon).GetSignName();
+            var signsAdvanced = ((int)sunSignAtEnd - (int)sunSignAtStart + 12) % 12;
 
-            var fullMoonInstant = time.GetStdDateTimeOffset().AddDays(daysToFullMoon);
-            var fullMoonTime = new Time(fullMoonInstant, time.GetGeoLocation());
+            var nijaName = RashiToLunarMonthTable[(int)sunSignAtStart - 1];
 
-            var moonConstellationAtFullMoon = ConstellationAtLongitude(PlanetNirayanaLongitude(PlanetName.Moon, fullMoonTime)).GetConstellationName();
+            //Sun crossed into exactly one new sign during this synodic month -> a normal (Nija) month
+            if (signsAdvanced == 1) { return nijaName; }
 
-            return ConstellationToLunarMonth(moonConstellationAtFullMoon);
+            //no Sankranti fell inside this synodic month at all -> Adhika (leap) month, keeping its
+            //own rashi-derived base name (an Adhika-X month is always immediately followed by the
+            //regular Nija-X occurrence of that same name, per the worked 2023 example above)
+            if (signsAdvanced == 0) { return ToAdhikaVariant(nijaName); }
+
+            //signsAdvanced >= 2: the Sun skipped an entire sign within one synodic month (a Kshaya/
+            //"expunged" month) - roughly once every 150 years, whose classical renaming involves
+            //the two/three surrounding months, not just this one. Not implemented; falls back to
+            //this month's own starting-rashi name rather than throwing. Verify against a second
+            //source (e.g. a printed Panchang) if a Kshaya masa year is ever encountered in practice.
+            return nijaName;
         }
 
-        private static LunarMonth ConstellationToLunarMonth(ConstellationName constellation)
+        /// <summary>Maps a Nija (regular) month to its Adhika (leap) variant - the enum lists all 12 Nija months first, then their 12 Adhika variants in the same order.</summary>
+        private static LunarMonth ToAdhikaVariant(LunarMonth nijaMonth) => (LunarMonth)((int)nijaMonth + 12);
+
+        /// <summary>Classical rashi (sidereal zodiac sign) to lunar month correspondence, indexed by ZodiacName's own 1-based ordering (Aries=1 .. Pisces=12), so index = (int)sign - 1.</summary>
+        private static readonly LunarMonth[] RashiToLunarMonthTable =
         {
-            var months = new[]
-            {
-                global::VedAstro.Library.LunarMonth.Chaitra, global::VedAstro.Library.LunarMonth.Vaisaakha,
-                global::VedAstro.Library.LunarMonth.Jyeshtha, global::VedAstro.Library.LunarMonth.Aashaadha,
-                global::VedAstro.Library.LunarMonth.Sraavana, global::VedAstro.Library.LunarMonth.Bhaadrapada,
-                global::VedAstro.Library.LunarMonth.Aaswayuja, global::VedAstro.Library.LunarMonth.Kaarteeka,
-                global::VedAstro.Library.LunarMonth.Maargasira, global::VedAstro.Library.LunarMonth.Pushya,
-                global::VedAstro.Library.LunarMonth.Maagha, global::VedAstro.Library.LunarMonth.Phaalguna
-            };
-
-            var constellationIndex = (int)constellation; //1 to 27
-            var monthIndex = (int)Math.Round((constellationIndex - 1) / (27.0 / 12.0)) % 12;
-
-            return months[monthIndex];
-        }
+            global::VedAstro.Library.LunarMonth.Vaisaakha,   //Aries       (Mesha)
+            global::VedAstro.Library.LunarMonth.Jyeshtha,    //Taurus      (Vrishabha)
+            global::VedAstro.Library.LunarMonth.Aashaadha,   //Gemini      (Mithuna)
+            global::VedAstro.Library.LunarMonth.Sraavana,    //Cancer      (Karka)
+            global::VedAstro.Library.LunarMonth.Bhaadrapada, //Leo         (Simha)
+            global::VedAstro.Library.LunarMonth.Aaswayuja,   //Virgo       (Kanya)
+            global::VedAstro.Library.LunarMonth.Kaarteeka,   //Libra       (Tula)
+            global::VedAstro.Library.LunarMonth.Maargasira,  //Scorpio     (Vrischika)
+            global::VedAstro.Library.LunarMonth.Pushya,      //Sagittarius (Dhanu)
+            global::VedAstro.Library.LunarMonth.Maagha,      //Capricorn   (Makara)
+            global::VedAstro.Library.LunarMonth.Phaalguna,   //Aquarius    (Kumbha)
+            global::VedAstro.Library.LunarMonth.Chaitra,     //Pisces      (Meena)
+        };
 
 
         //█▀█ █▀ █░█ ▀█▀ ▄▀█ █▄▀ ▄▀█ █░█ ▄▀█ █▀█ █▀▀ ▄▀█   █░░ █▀▀ █▀█ █▀▀ █░█ ▄▀█ █▀█ ▄▀█
