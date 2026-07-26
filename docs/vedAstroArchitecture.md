@@ -396,6 +396,58 @@ This section is unchanged by the migration. Planetary and house calculations
 lords, planetary aspects/conjunctions/strength, sunrise/sunset, IshtaKaala, HoraAtBirth, etc.,
 with results cached via `CacheManager.GetCache`.
 
+### Ephemeris Engine and Sidereal (Ayanamsa) Correction
+
+All raw planetary/house math is delegated to **Swiss Ephemeris**, via the `SwissEphNet` NuGet
+package (`Library/Library.csproj`, `SwissEphNet` v2.8.0.2) — a managed wrapper around the C
+`swedll32`/`libswe` Swiss Ephemeris library. `Library` never implements its own orbital
+mechanics; every planetary longitude ultimately comes from one call site,
+`Tools.ephemeris_swe_calc(time, swissPlanet)` (`Library/Logic/Tools.cs:3658`), which converts
+the input `Time` to Julian Ephemeris Time (`Calculate.TimeToJulianEphemerisTime`) and calls
+`SwissEph.swe_calc(jul_day_ET, swissPlanet, iflag, results, ref err_msg)`. `swissPlanet` is a
+Swiss Ephemeris body ID (`SwissEph.SE_SUN`, `SE_MOON`, ...) resolved from VedAstro's own
+`PlanetName` enum via `Tools.VedAstroToSwissEph` — a plain switch/if-chain, not a shared lookup
+table.
+
+Two longitude concepts sit on top of this raw call, both in `Library/Logic/Calculate/CoreTime.cs`:
+
+- **`PlanetSayanaLongitude`** (`CoreTime.cs:182`) — the tropical (Western-style) longitude,
+  straight from `ephemeris_swe_calc`'s `Longitude` result, with one Vedic-specific override:
+  Ketu (the south lunar node) isn't a real body in Swiss Ephemeris, so it's derived as Rahu's
+  longitude + 180°, rather than calculated independently.
+- **`PlanetNirayanaLongitude`** (`CoreTime.cs:207`) — the **sidereal** longitude actually used
+  everywhere else in Vedic calculations (house placement, dasas, divisional charts, etc.).
+  Rather than asking Swiss Ephemeris for a sidereal result directly (e.g. via the
+  `SEFLG_SIDEREAL` calculation flag), it takes the tropical `PlanetSayanaLongitude` and
+  subtracts the ayanamsa manually: `nirayana = (sayana - ayanamsaDeg + 360) % 360`. The
+  Upagrahas (shadow/calculated points — Dhuma, Vyatipaata, Gulika, Maandi, etc.) aren't real
+  Swiss Ephemeris bodies at all; they're derived arithmetically from the Sun's or another
+  planet's longitude (e.g. `DhumaLongitude` = Sun's sayana longitude, ayanamsa-corrected, +
+  133°20') rather than queried from the ephemeris, and their doc comments flag them as a
+  "best-effort reconstruction" that should be checked against a classical reference (e.g. BPHS)
+  before being relied on for precise predictive work.
+
+The ayanamsa value itself comes from `GetAyanamsaDegrees(time)` (`CoreTime.cs:226`), which calls
+`swe_set_sid_mode(Calculate.Ayanamsa, 0, 0)` followed by `swe_get_ayanamsa_ut(julDayUt)` — i.e.
+it re-derives the ayanamsa for the exact instant being calculated (ayanamsa drifts ~1° every 72
+years due to axial precession), rather than using a fixed constant. `Calculate.Ayanamsa`
+(`CoreTime.cs:22`) is a single mutable **static `int`**, defaulting to `SwissEph.SE_SIDM_LAHIRI`
+— so the selected ayanamsa system is process-wide/request-global state, not passed as an
+explicit parameter through the call chain. House cusps (`GetAllHouseNirayanaMiddleLongitudes`,
+`Core.cs:3519`) get their sidereal correction differently: instead of manually subtracting the
+ayanamsa, they pass the `SEFLG_SIDEREAL` flag straight into `swe_houses_ex` after the same
+`swe_set_sid_mode` call, using Swiss Ephemeris's own sidereal-cusp support (Placidus system,
+chosen — per the code comment — "to match Raphael's Ephemeris, as used in Raman's books").
+
+VedAstro's `Ayanamsa` enum (`Library/Data/Enum/Ayanamsa.cs`) mirrors all 47 Swiss Ephemeris
+`SE_SIDM_*` sidereal modes 1:1 by numeric value (`LAHIRI = 1`, `RAMAN = 3`, `KRISHNAMURTI = 5`,
+`TRUE_CITRA = 27`, etc., each tagged `[AdvancedOption]` since most callers only ever need the
+Lahiri default), so setting `Calculate.Ayanamsa` to a cast `Ayanamsa` enum value is exactly
+setting the underlying Swiss Ephemeris sidereal-mode constant — there's no VedAstro-side
+translation table to keep in sync. See [API Endpoint Design and
+Implementation](#api-endpoint-design-and-implementation) below for how a request's
+`/Ayanamsa/{Name}/` URL segment ends up mutating this static field before a calculator runs.
+
 `Ashtakavarga.cs` computes Prastaraka/Sarvashtakavarga/Bhinnashtakavarga charts.
 `VimshottariDasa.cs` computes hierarchical Dasa/Bhukti periods (up to 8 levels).
 `Vargas.cs` computes divisional charts (Hora D2, Navamsha D9, etc.) from precomputed tables.
@@ -840,6 +892,48 @@ generic `Calculate/{calculatorName}/{*fullParamString}` route reflects onto matc
 `WebsiteLoggerAPI.cs` (client-side error/debug logging), `BirthTimeFinderAPI.cs`,
 `EventsChartAPI.cs`, and `MatchAPI.cs` all still exist with the same responsibilities as
 before — only their data access underneath was repointed at Postgres repositories.
+
+Concretely, `SingleAPICallData` (`OpenAPI.cs:186`) — the method every `Calculate/*` request
+funnels through — runs four steps in sequence:
+
+1. **Method resolution** — `Tools.MethodNameToMethodInfo(calculatorName, [Calculate, PersonAPI])`
+   (`Library/Logic/Tools.cs:3432`) does a plain `GetMethods().Where(x => x.Name == methodName)`
+   over each candidate class in order, returning the first match (and logging, not throwing, if
+   more than one method shares that name — a "shouldn't happen" guard rather than an enforced
+   invariant). There's no attribute or registry marking a method as "callable" — **any** public
+   static method on `Calculate` or `PersonAPI` is automatically an API endpoint purely by
+   existing with a unique name, which is also why the codegen tool `StaticTableGenerator`
+   (see [Solution Projects at a Glance](#solution-projects-at-a-glance)) has to regenerate its
+   metadata table whenever a calculator method's signature changes.
+2. **Ayanamsa extraction** — `ParseAndSetAyanamsa` (`OpenAPI.cs:228`) scans the raw param string
+   for the literal substring `"Ayanamsa"`; if present, it slices out that one `/Ayanamsa/{Name}/`
+   segment (wherever it appears in the URL — not necessarily at the end), resolves `{Name}` to
+   the `Ayanamsa` enum via `Tools.EnumFromUrl`, and assigns it straight into the static
+   `Calculate.Ayanamsa` field (see [Ephemeris Engine and Sidereal (Ayanamsa)
+   Correction](#ephemeris-engine-and-sidereal-ayanamsa-correction) above) — *before* the
+   calculator method is resolved to parameters. This is why every single `Calculate/*`/`PersonAPI`
+   endpoint transparently supports an ayanamsa override with zero per-endpoint code: the
+   parameter is stripped out of the URL and applied as global state ahead of parsing, not
+   threaded through as a real method argument.
+3. **Parameter parsing** — `ParseUrlParameters` (`OpenAPI.cs:260`) reflects on the target method's
+   parameter list and splits it into two passes: compulsory parameters (`!p.HasDefaultValue`)
+   are consumed positionally, in declaration order, directly off the front of the remaining URL
+   path (`ParseUrlParameterByType`, which knows how to parse each supported .NET type — enums,
+   `Time`, `GeoLocation`, primitives — out of raw URL segments); optional parameters
+   (`p.HasDefaultValue`) are then matched out of whatever's left by name (`ParamName/ParamValue`
+   pairs, case-insensitive, any order, silently skipped if absent or unrecognized rather than
+   erroring).
+4. **Invocation** — the resolved `MethodInfo` is invoked with the parsed argument array
+   (`calculator.Invoke(null, parsedParamList.ToArray())`); if the return type is `Task`/`Task<T>`
+   (checked two ways — a generic-type check and `Tools.IsMethodReturnAsync`), it's awaited and
+   `.Result` is unwrapped before being handed back for JSON serialization via the `IToJson`
+   convention described in [Astrological Data Structures](#astrological-data-structures).
+
+There's also a batch mode (`callList` handling above `SingleAPICallData`, `OpenAPI.cs:160`) that
+runs the same single-call path once per entry in a dictionary of variant URLs against the same
+calculator name, casting each result to the calculator's declared return type — used for
+fetching multiple parameter variations of one calculation (e.g. several planets' data) in one
+HTTP round trip.
 
 ### API Authentication and User Management
 
