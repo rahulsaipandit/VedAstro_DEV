@@ -1,0 +1,226 @@
+import { Image, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
+import { Link, useRouter } from 'expo-router';
+
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { Icon, type IconName } from '@/components/Icon';
+import { useTheme } from '@/hooks/use-theme';
+import { PageRoute } from '@/constants/routes';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
+
+/**
+ * Ported from Website/Pages/Index.razor. The Bootstrap card grid/hero banner
+ * becomes plain RN Flexbox + StyleSheet (no CSS available) — see migration.md's
+ * Phase 3 "Why React Native" note.
+ */
+type QuickLink = {
+  route: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  image?: any; // RN image require() result (a numeric asset id at runtime)
+  icon?: IconName; // used instead of a photo when no card image asset exists yet
+  iconColor?: string;
+  title: string;
+  description: string;
+};
+
+const QUICK_LINKS: QuickLink[] = [
+  {
+    route: PageRoute.ChatAPI,
+    image: require('@/assets/images/quicklinks/ai-chat-card.jpg'),
+    title: 'AI Astrologer',
+    description: 'Talk & learn with AI powered astrologer for any queries',
+  },
+  {
+    route: PageRoute.MatchFinder,
+    image: require('@/assets/images/quicklinks/match-finder-card.jpg'),
+    title: 'Find Soulmate',
+    description: 'Free search astrological database for perfect match',
+  },
+  {
+    route: PageRoute.LifePredictor,
+    image: require('@/assets/images/quicklinks/dasa-card.jpg'),
+    title: 'Life Predictor',
+    description: 'Know good and bad periods of your life years ahead',
+  },
+  {
+    route: PageRoute.Match,
+    image: require('@/assets/images/quicklinks/match-card.jpg'),
+    title: 'Match',
+    description: 'Check astro chemistry for romance & relationship',
+  },
+  {
+    route: PageRoute.Horoscope,
+    image: require('@/assets/images/quicklinks/horoscope-card.jpg'),
+    title: 'Horoscope',
+    description: "Predict a person's character, speech, body & general life",
+  },
+  {
+    route: PageRoute.GoodTimeFinder,
+    image: require('@/assets/images/quicklinks/muhurtha-card.jpg'),
+    title: 'Muhurtha',
+    description: 'Find a good time for buying car, travel, studies, building..',
+  },
+  {
+    route: PageRoute.Journal,
+    image: require('@/assets/images/quicklinks/add-life-event-card.jpg'),
+    title: 'Journal',
+    description: 'Astrological journal to help understand your life events',
+  },
+  {
+    route: PageRoute.BirthTimeFinder,
+    image: require('@/assets/images/quicklinks/birth-time-finder-card.jpg'),
+    title: 'Birth Time Finder',
+    description: 'Find forgotten or lost birth time using astrological',
+  },
+  {
+    route: PageRoute.SunRiseSetTime,
+    image: require('@/assets/images/quicklinks/sunrise-card.jpg'),
+    title: 'Sunrise Time',
+    description: "Time when Sun's disc center meets the horizon",
+  },
+  {
+    route: PageRoute.VedicBirthday,
+    icon: 'moon',
+    iconColor: '#F5C518',
+    title: 'Vedic Birthday',
+    description: 'Find your birth tithi’s recurring date each year',
+  },
+  {
+    route: PageRoute.FestivalCalendar,
+    icon: 'calendar',
+    iconColor: '#D64545',
+    title: 'Festival Calendar',
+    description: 'Diwali, Holi & more computed fresh for any year',
+  },
+];
+
+export default function HomeScreen() {
+  const theme = useTheme();
+  const router = useRouter();
+  const { width } = useWindowDimensions();
+
+  const columns = width >= 900 ? 4 : width >= 650 ? 3 : width >= 380 ? 2 : 1;
+  const cardWidthPercent = 100 / columns;
+
+  // PageRoute entries are inconsistent about a leading slash (see constants/routes.ts) - a bare
+  // `/${route}` prefix double-slashes the ones that already have one (e.g. '/ChatAPI'), which a
+  // browser/expo-router resolves as a protocol-relative URL to a bogus host instead of a path.
+  function toHref(route: string) {
+    return (route.startsWith('/') ? route : `/${route}`) as never;
+  }
+
+  return (
+    <ScrollView style={{ backgroundColor: theme.background }} contentContainerStyle={styles.scrollContent}>
+      <ThemedView style={styles.page}>
+        <ThemedView style={styles.hero}>
+          <ThemedText type="title" style={styles.heroTitle}>
+            Welcome to VedAstro
+          </ThemedText>
+          <ThemedText themeColor="textSecondary">
+            Free, open-source Vedic astrology calculators — pick a tool to get started.
+          </ThemedText>
+        </ThemedView>
+
+        <ThemedView style={styles.quickLinksHeader}>
+          <ThemedText type="subtitle">Quick Links</ThemedText>
+          <Link href={toHref(PageRoute.CalculatorList)} asChild>
+            <Pressable hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <ThemedText type="linkPrimary">View All</ThemedText>
+            </Pressable>
+          </Link>
+        </ThemedView>
+
+        <ThemedView style={styles.grid}>
+          {QUICK_LINKS.map((link) => (
+            <Pressable
+              key={link.title}
+              onPress={() => router.push(toHref(link.route))}
+              style={[styles.cardWrapper, { width: `${cardWidthPercent}%` }]}>
+              <ThemedView style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
+                {link.image ? (
+                  <Image source={link.image} style={styles.cardImage} resizeMode="cover" />
+                ) : (
+                  <ThemedView style={[styles.cardImage, styles.cardIconBadge, { backgroundColor: `${link.iconColor ?? theme.text}22` }]}>
+                    <Icon name={link.icon ?? 'sparkles'} size={28} color={link.iconColor ?? theme.text} />
+                  </ThemedView>
+                )}
+                <ThemedView style={styles.cardBody}>
+                  <ThemedText type="smallBold" numberOfLines={1}>
+                    {link.title}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={2} style={styles.cardDescription}>
+                    {link.description}
+                  </ThemedText>
+                </ThemedView>
+              </ThemedView>
+            </Pressable>
+          ))}
+        </ThemedView>
+      </ThemedView>
+    </ScrollView>
+  );
+}
+
+const CARD_SHADOW =
+  Platform.OS === 'android'
+    ? { elevation: 2 }
+    : {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
+      };
+
+const styles = StyleSheet.create({
+  scrollContent: {
+    alignItems: 'center',
+  },
+  page: {
+    width: '100%',
+    maxWidth: MaxContentWidth,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.four,
+    paddingBottom: Spacing.six,
+  },
+  hero: {
+    gap: Spacing.one,
+    marginBottom: Spacing.five,
+  },
+  heroTitle: {
+    fontSize: 38,
+  },
+  quickLinksHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.three,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -Spacing.two,
+  },
+  cardWrapper: {
+    padding: Spacing.two,
+  },
+  card: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    ...CARD_SHADOW,
+  },
+  cardImage: {
+    width: '100%',
+    height: 64,
+  },
+  cardIconBadge: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardBody: {
+    padding: Spacing.three,
+    gap: Spacing.half,
+  },
+  cardDescription: {
+    lineHeight: 18,
+  },
+});
