@@ -32,8 +32,7 @@ export function useDefaultPerson() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [lastUsedPersonId, apiUrlDirect, effectiveOwnerId, visitorId]);
 
   function setPerson(next: Person) {
     setPersonState(next);
