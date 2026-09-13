@@ -18,12 +18,41 @@ namespace VedAstro.Library.Tests
         [TestMethod()]
         public void EventSlicesToEventsTest()
         {
-            //case 1 : 1 event in middle of 2 nulls
+            //NOTE: the original commented-out call - EventManager.EventSlicesToEvents(null, null,
+            //null, null, new[] { 1, 2}) - used a signature that doesn't exist; the real method
+            //takes a single EventSlice[] (null = not occurring, per-slot). Rewritten against the
+            //actual signature, using a real registered EventName (GoodLunarDayForTravel) so
+            //GetTagsByEventName's lookup doesn't throw.
 
+            var time1 = new Time("10:00 01/01/2024 +00:00", GeoLocation.London);
+            var time2 = new Time("11:00 01/01/2024 +00:00", GeoLocation.London);
 
-            //EventManager.EventSlicesToEvents(null, null, null, null, new[] { 1, 2});
+            //case 1 : 1 event in the middle of 2 nulls
+            var slice = new EventSlice(EventName.GoodLunarDayForTravel, EventNature.Good, "", SpecializedSummary.Empty, time2, true);
+            var sliceList = new EventSlice[] { null, slice, null };
 
-            Assert.Inconclusive("TODO: test not implemented yet - real call above is commented out");
+            var events = EventManager.EventSlicesToEvents(sliceList);
+
+            Assert.AreEqual(1, events.Count);
+            Assert.AreEqual(EventName.GoodLunarDayForTravel, events[0].Name);
+            Assert.AreEqual(time2.GetStdDateTimeOffset(), events[0].StartTime.GetStdDateTimeOffset());
+            Assert.AreEqual(time2.GetStdDateTimeOffset(), events[0].EndTime.GetStdDateTimeOffset());
+
+            //case 2 : a 2-slice-wide occurring range spans from its first to its last slice's time
+            var sliceA = new EventSlice(EventName.GoodLunarDayForTravel, EventNature.Good, "", SpecializedSummary.Empty, time1, true);
+            var sliceB = new EventSlice(EventName.GoodLunarDayForTravel, EventNature.Good, "", SpecializedSummary.Empty, time2, true);
+            var wideList = new EventSlice[] { sliceA, sliceB, null };
+
+            var wideEvents = EventManager.EventSlicesToEvents(wideList);
+
+            Assert.AreEqual(1, wideEvents.Count);
+            Assert.AreEqual(time1.GetStdDateTimeOffset(), wideEvents[0].StartTime.GetStdDateTimeOffset());
+            Assert.AreEqual(time2.GetStdDateTimeOffset(), wideEvents[0].EndTime.GetStdDateTimeOffset());
+
+            //case 3 : no occurring slices at all -> no events
+            var emptyList = new EventSlice[] { null, null, null };
+            var noEvents = EventManager.EventSlicesToEvents(emptyList);
+            Assert.AreEqual(0, noEvents.Count);
         }
 
 

@@ -12,6 +12,8 @@ How the `LibraryTests` suite went from 28 silent failures to a documented, hones
 | After triage + `LagnaChartTest` fix | 83 | 9 | 16 |
 | After the Ishta/Kashta investigation | 83 | 6 | 19 |
 | After the final 6-case deep dive | 83 | 3 | 22 |
+| After un-skipping the fixable ones | 86 | 3 | 18 |
+| After implementing `Time.FromLMT` | 87 | 3 | 17 |
 
 108 tests total throughout. Three real bugs were found and fixed in `Library/Logic/Calculate/Core.cs`
 (all variations of the same Bhava Chalit vs. whole-sign house mismatch), two wrong test fixtures
@@ -213,7 +215,67 @@ confirmed against full-suite reruns with **zero regressions** at each stage.
     ones already diagnosed earlier in this investigation as needing an external source (a verified
     Henry Ford birth record, or classical reference tables this codebase doesn't have) — left
     failing rather than converted, since they represent confirmed, real gaps rather than unfounded
-    test data. Final state as of this report.
+    test data.
+
+20. **Went back through all 22 skipped tests asking: which of these can actually be made to run
+    (not just documented) without external data?** Four could:
+    - **`EventSlicesToEventsTest` — rewritten against the real method signature.** The original
+      commented-out call, `EventManager.EventSlicesToEvents(null, null, null, null, new[] { 1, 2})`,
+      used a signature that never matched the real method (`EventSlicesToEvents(EventSlice[])`) - it
+      would never have compiled. Rewrote it with real `EventSlice` objects (using an actual
+      registered `EventName`, `GoodLunarDayForTravel`, so the internal tag lookup doesn't throw)
+      covering the "1 event between 2 nulls," a multi-slice-wide event, and an all-null case. All
+      pass for real.
+    - **`AyanamsaDegreeTest` — the test's own date was wrong.** The book's formula only depends on
+      the year, implicitly meaning "at the start of the year," but the test evaluated at 1 Oct.
+      Verified empirically by computing the ayanamsa at 5 dates spread through 1912: the gap grows
+      linearly from 0" at 1 Jan to 50" at 31 Dec, confirming 1 Jan is what the book's value
+      corresponds to. Fixed the test's dates to 1 Jan for both examples; passes within a 2-arcsecond
+      tolerance (the tiny residual between a linear approximation and a continuous ephemeris even
+      at the aligned date).
+    - **`LunarDayTest` — was completely empty (no assertions at all).** No book-cited tithi exists
+      for the Standard Horoscope to assert an exact value against, but `LunarDay` can be
+      cross-checked for self-consistency against `DailyPanchang`'s own independently-computed
+      Tithi - the same pattern already validated by the passing
+      `DailyPanchang_TithiAndVaraMatchTheirOwnStandaloneCalculators` test - plus a basic range check
+      (a tithi is always 1-30). Both now genuinely verified.
+    - **`PlanetIshtaKashtaScoreTest` — asserted the wrong thing.** The book citation is purely
+      qualitative ("Kashta predominates over Ishta for Venus"), so the hardcoded exact value `-1`
+      had no source, but the *sign* is exactly what the citation supports. Changed the assertion to
+      check `venusScore < 0` instead of an invented magnitude.
+    - The other 18 skipped tests were each checked against the same question and don't have a path
+      to running without either building a missing Library feature (`Time.FromLMT`), obtaining an
+      external classical reference table or verified birth record, or asserting a value with no
+      real source - so they were left as documented `Assert.Inconclusive`, not force-fixed.
+
+21. **Full-suite re-run: 86 passed / 3 failed / 18 skipped, zero regressions.**
+
+22. **`LMTToSTDTest` closed out for real by comparing against `Time_OldBackup.cs`, an earlier
+    version of `Time.cs` still sitting in the repo.** That backup had the `FromLMT` method the
+    current `Time.cs` was missing - but tracing through its implementation showed it was actually
+    broken: `new Time(lmtParsed, geoLocation)` passed a bare `DateTime` where no such constructor
+    exists, so it only compiled via C#'s implicit `DateTime` → `DateTimeOffset` conversion, which
+    for an "Unspecified" `Kind` (exactly what that method's own parsing produces) uses **the
+    current machine's local system timezone** - not the location's longitude at all. It never did
+    a real LMT-to-STD conversion; it silently produced a machine-dependent wrong answer. Also
+    surveyed the rest of the diff: `IToXml`/`ToXml()`/`FromXml(...)` were removed too, but nothing
+    else in the codebase calls them (checked `Library`, `API`, `Data`) - consistent with the
+    project's JSON-first direction, left alone. `GetLocalTimeOffset`'s defensive out-of-range
+    auto-correction and try/catch fallback were also dropped when it moved to
+    `Calculate.LongitudeToLMTOffset` - flagged as a behavior change worth a decision, not fixed
+    (only matters for malformed input). `TimeToLongitude` looked missing but turned out to just be
+    renamed to `Calculate.TimeOffsetToLongitude` - no actual gap there.
+
+    Implemented a **correct** `Time.FromLMT(string lmtDateTimeText, TimeSpan stdOffset, GeoLocation
+    geoLocation)` as a thin wrapper around the already-correct `Time(LocalMeanTime, TimeSpan,
+    GeoLocation)` constructor (which does the real conversion via `Calculate.LmtToStd`) - taking an
+    explicit STD offset rather than silently guessing one, which is exactly what the old version
+    got wrong. `LMTToSTDTest` now round-trips `StandardHoroscope`'s LMT (14:00 16/10/1918, already
+    verified in `STDToLMTTest`) back through `FromLMT` with Bangalore's real +05:30 offset and
+    recovers the original STD time exactly.
+
+23. **Full-suite re-run: 87 passed / 3 failed / 17 skipped, zero regressions.** Final state as of
+    this report.
 
 ## 2. The root cause, in detail
 
@@ -305,9 +367,14 @@ full-suite rerun confirmed zero regressions.
 | `MarsAshtakavargaYoga8And12Test` | Was failing | Fixed via the Bug 1 house-system fix |
 | `HoroscopePredictionsTest` | Was failing | Fixed — bonus fix, same code path as Bug 1 |
 | `LagnaChartTest` | Was failing (wrong fixture) | Fixed — expected values recomputed and cross-verified against `CalculateKP.PlanetsInHouse`; all 12 house assertions now enabled and passing |
-| `LMTToSTDTest`, `AbstractActivityTest`, `MainActivityTest`, `MurthiTest`, `TajikaDateForYearTest` | Broken assertions (Group A) | Fixed — converted to documented `Assert.Inconclusive`, each with its own specific reason (missing feature, non-deterministic input, or acknowledged placeholder) |
-| `PlanetIshtaScoreTest`, `PlanetKashtaScoreTest`, `PlanetIshtaKashtaScoreTest` | Diagnosed | Fixed the diagnosis, not the formula — root-caused to the `ChestaBala` sub-formula (via solved-backward book values) and an unfounded `-1` expected value respectively; converted to documented `Assert.Inconclusive` |
-| `ParvataYogaTest`, `PlanetNirayanaLongitudeTest`, `AyanamsaDegreeTest` | Diagnosed | Root-caused to an uncited fixture, an isolated Mars-specific bug in `KaalaVelaLongitude`, and a year-granularity-vs-continuous-ephemeris methodology mismatch respectively; converted to documented `Assert.Inconclusive` |
+| `AbstractActivityTest`, `MainActivityTest`, `MurthiTest`, `TajikaDateForYearTest` | Broken assertions (Group A) | Fixed — converted to documented `Assert.Inconclusive`, each with its own specific reason (non-deterministic input or acknowledged placeholder) |
+| `PlanetIshtaScoreTest`, `PlanetKashtaScoreTest` | Diagnosed | Fixed the diagnosis, not the formula — root-caused to the `ChestaBala` sub-formula via solved-backward book values; converted to documented `Assert.Inconclusive` |
+| `ParvataYogaTest`, `PlanetNirayanaLongitudeTest` | Diagnosed | Root-caused to an uncited fixture and an isolated Mars-specific bug in `KaalaVelaLongitude` respectively; converted to documented `Assert.Inconclusive` |
+| `EventSlicesToEventsTest` | Was stale/broken | Fixed — rewritten against the real `EventSlicesToEvents(EventSlice[])` signature (the old commented-out call used one that never existed); now genuinely passes |
+| `AyanamsaDegreeTest` | Was failing (wrong test date) | Fixed — the book's formula implies "start of year," not 1 Oct; corrected the test dates to 1 Jan (verified empirically) and added a 2-arcsecond tolerance for the residual linear-vs-continuous gap |
+| `LunarDayTest` | Was empty (no assertions) | Fixed — added a real self-consistency check against `DailyPanchang`'s independently-computed Tithi, plus a range sanity check |
+| `PlanetIshtaKashtaScoreTest` | Was failing (unfounded value) | Fixed — the book citation only supports the *sign* (Kashta predominates), so the assertion now checks `venusScore < 0` instead of an invented `-1` magnitude |
+| `Time.FromLMT` / `LMTToSTDTest` | Missing feature, now built | Fixed — the old `FromLMT` (in `Time_OldBackup.cs`) was itself broken (silently used the machine's local timezone instead of the location's longitude); implemented a correct version as a thin wrapper around the existing `Time(LocalMeanTime, TimeSpan, GeoLocation)` constructor, taking an explicit STD offset. `LMTToSTDTest` now round-trips for real. |
 
 ## 4. What's not fixed
 
@@ -321,10 +388,10 @@ full-suite rerun confirmed zero regressions.
 | `PanchaPakshiTest` | Open, still failing | Birth-bird formula is an admitted `(nakshatra-1) % 5` placeholder, not the real classical day/night nakshatra-group table. No substitute table exists elsewhere in the codebase; needs an external classical source. |
 | `GetFirstVowelSoundTest` | Open, still failing | Documented gap: 2 of the test's own worked examples (`PERUMAL`, `JACOB`) don't follow any pattern the rest of the algorithm is built from — needs an external proprietary lookup table. |
 | `PlanetIshtaScoreTest`, `PlanetKashtaScoreTest` | Documented, Inconclusive | Solving both book formulas backward from the book's own cited values shows `UchchaBala` is very likely correct (matches the book-implied value almost exactly for the Sun) but `ChestaBala` (a linear speed-ratio proxy) likely isn't; fixing it needs the real classical Cheshta Bala table, not a guess. Mercury's own cited pair is mathematically impossible under the formula regardless of software correctness. |
-| `PlanetIshtaKashtaScoreTest` | Documented, Inconclusive | Book citation is purely qualitative ("Kashta predominates") with no specific number; the computed value is already negative, agreeing with that claim. The hardcoded `-1` expected value has no traceable source. |
 | `ParvataYogaTest` | Documented, Inconclusive | No book citation supports Bal Thackeray's chart (documented elsewhere for the unrelated Sakata Yoga) satisfying Parvata Yoga; the blocking condition is false under both cuspal and whole-sign house conventions, so this isn't a house-system bug either. |
 | `PlanetNirayanaLongitudeTest` (Mrityu) | Documented, Inconclusive | Off by ~74.8° — isolated to Mars's Kalavela slot specifically (the other 5 sibling Upagrahas pass within 0.05° tolerance on the same chart). Needs the real classical per-weekday Kalavela table to fix confidently; a guessed index shift would only coincidentally match. |
-| `AyanamsaDegreeTest` | Documented, Inconclusive | The book's formula only has year-level granularity; this software's ayanamsa is a continuous Swiss Ephemeris calculation. Testing at 1 Oct (not day 1 of the year) alone predicts almost exactly the observed ~37 arcsecond gap — a methodology mismatch, not a bug. |
+| `NextLunarEclipseTest`, `GocharaKakshasTest`, `NextNewMoonTest`, `SunriseTimeTest`, `AbstractActivityTest`, `AbstractActivityStrengthTest`, `TajikaDateForYearTest` | Documented, Inconclusive | No independently-verified expected value exists for these calculations. |
+| `MainActivityTest`, `MurthiTest` | Documented, Inconclusive | Both take the actual current wall-clock time as input, so there's no fixed correct answer to hardcode even once one is known — needs a fixed `Time` fixture first. |
 | Tests with no real assertions | Untouched | A broader pattern flagged in the initial review (e.g. `PlanetAspectDegreeTest`, `GeoLocationTest`, `DasaTest`, `StringToTimezoneTest`) — each computes a value but never asserts on it, so it can only catch a crash, never a wrong answer. Not addressed this session. |
 
 ## 5. Diagnostic method: is a failing test a data problem or a logic problem?
@@ -361,14 +428,20 @@ Developed and applied over the course of this investigation:
    pair is mathematically impossible under the assumed formula (a strong sign of either a
    transcription error in the citation or a wrong formula), independent of anything the software
    computes.
+9. **Check an old backup file for a removed feature, but don't trust it blindly.** When a test needs
+   a method that no longer exists, check for an earlier version of the same file still in the repo
+   (e.g. `*_OldBackup.cs`) — but trace through what it actually did before restoring it verbatim;
+   the old version can itself be buggy (as `Time_OldBackup.cs`'s `FromLMT` was), in which case the
+   right move is a corrected reimplementation using the file's diff as a spec, not a copy-paste.
 
 ## 6. Files touched
 
 - `Library/Logic/Calculate/Core.cs` — three real bug fixes: `HousePlanetOccupiesBasedOnSign`, `IsPlanetInOwnSign`, `PlanetsInHouseBasedOnSign`
+- `Library/Data/Time.cs` — added a correct `FromLMT(string, TimeSpan, GeoLocation)`, replacing the broken one that used to exist in `Time_OldBackup.cs`
 - `LibraryTests/Logic/Calculate/CalculateAshtakvargaTests.cs` — Roosevelt/Marx fixture corrections, Inconclusive conversions, copy-paste fix, root-cause comments
-- `LibraryTests/Logic/Calculate/CalculateTests.cs` — 16 placeholder/broken-assertion conversions (including the Ishta/Kashta trio, `ParvataYogaTest`, `PlanetNirayanaLongitudeTest`), Karl Marx fixture fix, Bhinnashtakavarga/bindu root-cause documentation, `LagnaChartTest` fixture correction and re-enablement
-- `LibraryTests/Logic/Calculate/ManualOfHinduAstrologyTests.cs` — `AyanamsaDegreeTest` methodology-mismatch documentation
-- `LibraryTests/managers/EventManagerTests.cs` — 1 placeholder conversion (`EventSlicesToEventsTest`)
+- `LibraryTests/Logic/Calculate/CalculateTests.cs` — 13 documented `Assert.Inconclusive` conversions, plus 3 real fixes (`LMTToSTDTest`, `LunarDayTest`, `PlanetIshtaKashtaScoreTest`), Karl Marx fixture fix, Bhinnashtakavarga/bindu root-cause documentation, `LagnaChartTest` fixture correction and re-enablement
+- `LibraryTests/Logic/Calculate/ManualOfHinduAstrologyTests.cs` — `AyanamsaDegreeTest` fixed for real (corrected test dates + small tolerance)
+- `LibraryTests/managers/EventManagerTests.cs` — `EventSlicesToEventsTest` rewritten against the real method signature; now genuinely passes
 
 ---
 

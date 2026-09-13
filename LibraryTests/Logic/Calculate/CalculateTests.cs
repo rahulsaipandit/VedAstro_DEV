@@ -221,18 +221,13 @@ namespace VedAstro.Library.Tests
         [TestMethod()]
         public void LMTToSTDTest()
         {
-            //-------------------TEST 2------------------------
-            var lmtStdHoro = StandardHoroscope.GetLmtDateTimeOffset();
+            //Reverse of STDToLMTTest's TEST 2: StandardHoroscope's STD (14:20 16/10/1918 +05:30)
+            //has LMT 14:00 16/10/1918 at Bangalore (already verified in STDToLMTTest above).
+            //Time.FromLMT now exists (see Time.cs) - round-tripping that LMT back through it, with
+            //Bangalore's real +05:30 IST offset, should recover the original STD time exactly.
+            var std = Time.FromLMT("14:00 16/10/1918", TimeSpan.FromHours(5.5), GeoLocation.Bangalore);
 
-            //var std = Time.FromLMT("14:00 16/10/1918", GeoLocation.Bangalore);
-            //TODO: this was meant to test converting an LMT string back to STD (the reverse of
-            //STDToLMTTest above), but Time.FromLMT (or any equivalent reverse-conversion method)
-            //does not exist anywhere in the Library - only referenced here, commented out. The
-            //previous assertion (`lmtStdHoro == null`) was always false regardless of correctness:
-            //GetLmtDateTimeOffset() returns a non-nullable DateTimeOffset, so the compiler already
-            //flags this comparison (CS8073) as unconditionally false. Not fixable as a test-only
-            //change - needs the missing LMT-to-STD conversion feature built in the Library first.
-            Assert.Inconclusive("TODO: Time.FromLMT (LMT-to-STD reverse conversion) does not exist in the Library yet - this test can't be written until that feature is built");
+            Assert.AreEqual(StandardHoroscope.GetStdDateTimeOffset(), std.GetStdDateTimeOffset());
         }
 
         //[TestMethod()]
@@ -678,14 +673,12 @@ namespace VedAstro.Library.Tests
             var venusScore = Calculate.PlanetIshtaKashtaScoreDegree(PlanetName.Venus, StandardHoroscope);
 
             //Unlike PlanetIshtaScoreTest above, the book quote here is purely qualitative ("Kashta
-            //predominates over Ishta") - no specific numeric value is cited. This method maps
-            //distance-from-debilitation onto a -5..+5 scale (-5 = at debilitation, +5 = at
-            //exaltation); by hand, Venus's near-debilitation position here gives ~-4.67, which
-            //IS negative - i.e. it already agrees with the book's qualitative claim that Kashta
-            //predominates for Venus. The specific expected magnitude "-1" has no cited source and
-            //looks like an arbitrary stand-in for "the sign should be negative" rather than a real
-            //book value, so it's not something to fix code against.
-            Assert.Inconclusive($"TODO: no book-cited numeric value exists for this (only a qualitative 'Kashta predominates' claim) - computed value ({venusScore}) is already negative, agreeing with that claim; the expected '-1' has no known source");
+            //predominates over Ishta") - no specific numeric value is cited, so the exact "-1"
+            //this test used to assert had no traceable source. What the book's citation actually
+            //supports is the *sign*: this method maps distance-from-debilitation onto a -5..+5
+            //scale (-5 = at debilitation, +5 = at exaltation), and Kashta predominating over Ishta
+            //means this should be negative. Asserting that instead of a specific, unfounded magnitude.
+            Assert.IsTrue(venusScore < 0, $"Kashta should predominate over Ishta for Venus per the book (pg. 109) - expected a negative score, got {venusScore}");
         }
 
         [TestMethod()]
@@ -1121,9 +1114,17 @@ namespace VedAstro.Library.Tests
         [TestMethod()]
         public void LunarDayTest()
         {
-            //TODO test for Lunar Day
+            //No book-cited tithi exists for the Standard Horoscope to assert an exact expected
+            //value against, but LunarDay can be cross-checked for self-consistency against
+            //DailyPanchang's own independently-computed Tithi - the same pattern already validated
+            //in PanchangTests.DailyPanchang_TithiAndVaraMatchTheirOwnStandaloneCalculators - plus a
+            //basic range sanity check (a lunar day/tithi number is always 1-30).
+            var sunrise = Calculate.SunriseTime(StandardHoroscope);
+            var lunarDay = Calculate.LunarDay(sunrise);
+            var panchang = Calculate.DailyPanchang(StandardHoroscope);
 
-            Assert.Inconclusive("TODO: test for Lunar Day not implemented yet");
+            Assert.IsTrue(lunarDay.GetLunarDateNumber() >= 1 && lunarDay.GetLunarDateNumber() <= 30);
+            Assert.AreEqual(panchang.Tithi.GetLunarDateNumber(), lunarDay.GetLunarDateNumber());
         }
 
         //PASS

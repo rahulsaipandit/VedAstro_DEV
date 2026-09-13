@@ -127,6 +127,24 @@ namespace VedAstro.Library
         }
 
         /// <summary>
+        /// Given an LMT date time in string (HH:mm dd/MM/yyyy) and the STD offset to convert to,
+        /// returns the equivalent Time (STD-backed). This is the corrected replacement for an
+        /// older, broken FromLMT that used to live on this struct (found in Time_OldBackup.cs):
+        /// that version called `new Time(lmtParsed, geoLocation)` with a bare DateTime, which -
+        /// because C# implicitly converts DateTime to DateTimeOffset using the *current machine's
+        /// local system timezone* for an "Unspecified" Kind - never actually converted LMT to STD
+        /// using the location's longitude at all. It silently produced a machine-dependent wrong
+        /// answer instead. This version takes an explicit stdOffset (the same requirement the
+        /// existing, already-correct Time(LocalMeanTime, TimeSpan, GeoLocation) constructor has)
+        /// rather than guessing one, and is just a thin wrapper around that constructor.
+        /// </summary>
+        public static Time FromLMT(string lmtDateTimeText, TimeSpan stdOffset, GeoLocation geoLocation)
+        {
+            var lmt = new LocalMeanTime(lmtDateTimeText, geoLocation.Longitude());
+            return new Time(lmt, stdOffset, geoLocation);
+        }
+
+        /// <summary>
         /// Gets now time (STD) at this time's location/offset
         /// SYSTEM NOW TIME
         /// </summary>
