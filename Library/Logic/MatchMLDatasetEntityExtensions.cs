@@ -53,9 +53,9 @@ namespace VedAstro.Library
             //1 : convert to json
             var jsonParsed = row?.InfoJson();
             var returnList = new List<JToken>();
-            if (jsonParsed != null)
+            var marriagesArray = jsonParsed?["marriages"];
+            if (marriagesArray != null)
             {
-                var marriagesArray = jsonParsed["marriages"];
                 foreach (var marriagesJson in marriagesArray)
                 {
                     returnList.Add(marriagesJson);

@@ -25,7 +25,8 @@ public static class DatasetFactory
     // API/Program.cs does. Instead we build a small local IDbContextFactory<AppDbContext> and
     // construct the repositories directly - same repository classes/pattern the API uses
     // (Data/Repositories/NamedRepositories.cs), just resolved by hand instead of via DI.
-    private static readonly IDbContextFactory<AppDbContext> dbContextFactory = CreateDbContextFactory();
+    /// <summary>internal (not private) so CsvSeeder.cs can open its own short-lived AppDbContext for bulk inserts</summary>
+    internal static readonly IDbContextFactory<AppDbContext> dbContextFactory = CreateDbContextFactory();
 
     /// <summary>PersonList is read-only here - reuses the same IPersonRepository/PersonRepository the API uses (no second Person repository).</summary>
     public static readonly IPersonRepository personRepo = new PersonRepository(dbContextFactory);

@@ -83,11 +83,12 @@ namespace VedAstro.Library
             var precisionInHours = 504;
 
             //set what dasa levels to include based on input level
-            var tagList = new List<EventTag>
+            var allLevelTags = new List<EventTag>
      {
          //Dasa > Bhukti > Antaram > Sukshma > Prana > Avi Prana > Viprana
          EventTag.PD1,EventTag.PD2, EventTag.PD3, EventTag.PD4,
      };
+            var tagList = allLevelTags.Take(Math.Clamp(levels, 1, allLevelTags.Count)).ToList();
 
             // TEMP hack to place time in Person (wrapped) 
             var johnDoe = new Person("", birthTime, Gender.Empty);

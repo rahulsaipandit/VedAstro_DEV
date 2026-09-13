@@ -109,6 +109,21 @@ namespace MatchMLPipeline
 
             //var result = DatasetFactory.GenerateMarriageKutaDataset();
 
+            // One-time local seeding of person_list/marriage_info_dataset from the HuggingFace
+            // CSVs, needed before either validation pipeline below has anything to read.
+            // Path is relative to the built executable (bin/Debug/net10.0/), not the working
+            // directory, so it resolves the same whether run via `dotnet run` or the built .dll.
+            //CsvSeeder.SeedAll(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "HuggingFace"));
+
+            // Phase 1 ML validation pipeline (docs/MLTesting.md): checks Dasha-predicted
+            // marriage windows against real, documented marriage dates for famous people.
+            //DashaValidationPipeline.RunAndPrintReport();
+
+            // Phase 2 ML validation pipeline (docs/MLTesting.md): checks whether Kuta/Guna
+            // compatibility scores actually track real marriage outcomes (Happiness vs.
+            // Dissolution) for linked couples.
+            //KutaValidationPipeline.RunAndPrintReport();
+
             Console.WriteLine("\nEnd demo ");
             Console.ReadLine();
         } // Main
