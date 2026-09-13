@@ -1,0 +1,11 @@
+{
+  "ApiConfigs": [
+    {
+      "Name": "LM Studio",
+      "BaseUrl": "http://localhost:1234/v1",
+      "ApiKey": "lm-studio",
+      "MaxContextWindowTokens": 32000,
+      "Model": ""
+    }
+  ]
+}

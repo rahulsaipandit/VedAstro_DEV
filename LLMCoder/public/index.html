@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLMCoder</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header id="topBar">
+    <h1>LLMCoder</h1>
+
+    <label>LLM
+      <select id="llmSelector"></select>
+    </label>
+
+    <button id="openSettingsButton" type="button">⚙ Settings</button>
+
+    <label>Temperature
+      <input type="number" id="temperature" value="0.7" step="0.1" min="0" max="2" />
+    </label>
+
+    <label>Top P
+      <input type="number" id="topP" value="1.0" step="0.1" min="0" max="1" />
+    </label>
+
+    <div id="usageMeters">
+      <span id="kbUsageLabel">0.00 / 0 KB</span>
+      <div class="progress-bar-track">
+        <div id="tokenUsageBar" class="progress-bar-fill"></div>
+        <span id="tokenUsageText" class="progress-bar-text"></span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section id="snippetInjectSection" class="panel">
+      <h2>
+        <label><input type="checkbox" id="snippetInjectCheckbox" /> Snippet Inject</label>
+      </h2>
+      <label>Pre-prompt <input type="text" id="codeInjectPretext" value="analyse and parse code" /></label>
+      <textarea id="largeCodeSnippet" placeholder="Paste a code snippet here..." rows="6"></textarea>
+      <label>Assistant pre-text <input type="text" id="injectAssistantPretext" value="ok, I've parsed the code, how may I help with it?" /></label>
+      <span id="snippetTokenCount">Token Count : 0</span>
+    </section>
+
+    <section id="fileInjectSection" class="panel">
+      <h2>
+        <label><input type="checkbox" id="fileInjectCheckbox" checked /> File Inject</label>
+      </h2>
+
+      <div class="preset-row">
+        <label>Preset
+          <select id="presetSelect"></select>
+        </label>
+        <button id="savePresetButton" class="hidden">💾 Save Preset</button>
+        <button id="addFileInjectButton">➕ Add File</button>
+      </div>
+
+      <div id="fileInjectList"></div>
+    </section>
+
+    <section id="chatSection" class="panel">
+      <div class="chat-controls">
+        <label>Past prompts
+          <select id="pastUserPrompts"></select>
+        </label>
+        <button id="copyFinalPromptButton">📋 Copy Final Prompt</button>
+        <button id="resetChatHistoryButton">🗑️ Reset Chat</button>
+      </div>
+
+      <div id="outputChatMessagePanel"></div>
+
+      <div class="user-input-row">
+        <textarea id="userInput" placeholder="Type your message..." rows="3"></textarea>
+        <div class="user-input-buttons">
+          <button id="sendUserMsgButton">Send</button>
+          <button id="clearUserMsgButton">Clear</button>
+          <button id="terminateOngoingLLMCallButton" class="hidden">✖ Cancel</button>
+        </div>
+      </div>
+
+      <div id="llmThinkingRow" class="hidden">
+        <span id="llmThinkingLabel">LLM Thinking...</span>
+        <span id="llmThinkingTimerLabel">0 s</span>
+        <div class="progress-bar-track">
+          <div id="llmThinkingProgressBar" class="progress-bar-fill"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="settingsDialog">
+    <h2>LLM Settings</h2>
+    <p class="settings-hint">
+      Each config points at an OpenAI-compatible server's base URL (no trailing
+      <code>/chat/completions</code>). Leave <strong>Model</strong> blank to auto-detect the
+      currently loaded model via <code>GET {baseUrl}/models</code>.
+    </p>
+    <div id="settingsConfigList"></div>
+    <button id="addSettingsConfigButton" type="button">➕ Add Config</button>
+    <div class="settings-actions">
+      <button id="saveSettingsButton" type="button">💾 Save</button>
+      <button id="closeSettingsButton" type="button">Cancel</button>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

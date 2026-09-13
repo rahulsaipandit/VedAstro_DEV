@@ -1,0 +1,308 @@
+:root {
+  --bg: #1e1e1e;
+  --panel-bg: #2a2a2a;
+  --text: azure;
+  --accent: dodgerblue;
+  --danger: indianred;
+  --user-color: aqua;
+  --assistant-color: limegreen;
+  --error-color: #ff6b6b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Cascadia Code", Consolas, monospace;
+  margin: 0;
+  padding: 16px;
+}
+
+h1 {
+  font-size: 1.2rem;
+  margin: 0 8px 0 0;
+}
+
+h2 {
+  font-size: 1rem;
+  margin: 0 0 8px 0;
+}
+
+label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8rem;
+}
+
+input, select, textarea, button {
+  font-family: inherit;
+  background: #111;
+  color: var(--text);
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+button {
+  cursor: pointer;
+  background: #333;
+}
+
+button:hover {
+  background: #444;
+}
+
+#topBar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #444;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+
+#usageMeters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 260px;
+}
+
+.progress-bar-track {
+  position: relative;
+  flex: 1;
+  height: 20px;
+  background: #fff;
+  border: 1px solid #000;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: green;
+}
+
+.progress-bar-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  color: darkblue;
+  font-weight: bold;
+}
+
+.panel {
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.preset-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.file-inject-row {
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+  background: #000;
+}
+
+.file-inject-row .row-line1 {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.file-inject-row .row-line1 input[type="text"] {
+  flex: 1;
+}
+
+.file-inject-row .line-range input {
+  width: 70px;
+}
+
+.file-inject-row textarea {
+  color: lightgreen;
+  background: #111;
+  min-height: 28px;
+}
+
+.file-inject-row textarea.expanded {
+  min-height: 300px;
+}
+
+.file-inject-row .prompt-row {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.file-inject-row .prompt-row input {
+  flex: 1;
+}
+
+.file-inject-row .row-line1 button,
+.file-inject-row .prompt-row + button {
+  flex-shrink: 0;
+}
+
+.status-label {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.chat-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+#outputChatMessagePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.chat-message {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 6px;
+}
+
+.chat-message textarea {
+  flex: 1;
+  min-height: 28px;
+  font-weight: bold;
+}
+
+.chat-message textarea.expanded {
+  min-height: 200px;
+}
+
+.chat-message.role-user textarea { color: var(--user-color); }
+.chat-message.role-assistant textarea { color: var(--assistant-color); }
+.chat-message.role-error textarea { color: var(--error-color); }
+
+.chat-message .message-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.user-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.user-input-row textarea {
+  flex: 1;
+}
+
+.user-input-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#llmThinkingRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#llmThinkingRow .progress-bar-track {
+  max-width: 200px;
+}
+
+button.danger {
+  background: var(--danger);
+}
+
+#settingsDialog {
+  background: var(--panel-bg);
+  color: var(--text);
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 16px;
+  width: min(700px, 92vw);
+}
+
+#settingsDialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.settings-hint {
+  font-size: 0.8rem;
+  opacity: 0.85;
+  margin: 0 0 12px 0;
+}
+
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+  background: #000;
+}
+
+.settings-row input {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.settings-quickfill {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.settings-quickfill button {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}

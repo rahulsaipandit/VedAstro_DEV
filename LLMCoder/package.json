@@ -1,0 +1,16 @@
+{
+  "name": "llmcoder",
+  "version": "1.0.0",
+  "description": "Local web app for chatting with LLMs while injecting curated source-file context.",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

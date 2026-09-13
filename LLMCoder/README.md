@@ -1,73 +1,55 @@
-# LLMCodes
-LLMCodes is a simple graphical user interface (GUI) application designed 
-to facilitate code generation using Large Language Models (LLMs).
-This project allows users to easily switch between multiple LLMs,
-providing a versatile coding assistant experience.
+# LLMCoder
+
+A small local web app for chatting with LLMs while injecting curated source-file context into
+the conversation — a developer utility, not a shipped product. Originally a Windows-only WinForms
+app; now a Node/Express backend + plain HTML/CSS/vanilla JS frontend, so it runs anywhere Node
+runs and opens in any browser.
 
 ## Features
 
-- **Multiple LLM Support**: Easily switch between different LLMs like GPT-4, Phi3, MistralNemo, MetaLlama, and Cohere.
-- **Local Execution**: Run the application locally with unlimited timeout HTTP calls, offering more flexibility and control than online alternatives.
-- **Past Prompts**: Load and reuse previous prompts from your chat history.
-- **Simple User Interface**: A straightforward and user-friendly interface for a smooth experience.
+- Chat with any OpenAI-compatible LLM server — defaults to **LM Studio**
+  (`http://localhost:1234/v1`), switchable in-app to **Ollama** or **vLLM** (or any other
+  OpenAI-compatible base URL) via the ⚙ Settings panel, no file editing required.
+- Auto-detects which model is loaded via the server's `GET {baseUrl}/models` endpoint - no need
+  to type a model name unless you want to pin one.
+- Inject one or more source files (or line ranges of them) as prior context, each with its own
+  pre/post prompt text.
+- Save/load sets of injected files as named **presets**.
+- Live KB/token usage meter against the selected model's context window.
+- Editable, deletable, collapsible chat messages; history logged to `chat-history.json`; past
+  prompts resurface in a dropdown for reuse.
+- Cancel an in-flight LLM call.
 
-![image](https://github.com/user-attachments/assets/0678763d-5a82-4130-a7bd-7517ed68d329)
-![image](https://github.com/user-attachments/assets/b268c97c-5f8e-403b-a935-cd02ae5af204)
-![image](https://github.com/user-attachments/assets/fd0e6286-53a4-428a-a03b-46cacced2f41)
-
-## Installation
-
-1. **Clone the Repository**:
+## Setup
 
 ```sh
-Copy code
-git clone https://github.com/your-username/LLMCodes.git
-cd LLMCodes
+cd LLMCoder
+npm install
+npm start
 ```
 
-2. Set Up Configuration:
+Open `http://localhost:3000` (override the port with `PORT=xxxx npm start`). On first run, with
+no `config.json` yet, the app opens ⚙ Settings automatically so you can add your first LLM - pick
+the "LM Studio" quick-fill button (or "Ollama"/"vLLM") to fill in its base URL, then Save.
 
-Create a secrets.json file in the root directory with your API keys and endpoints. Use the following structure:
-```json
-Copy code
-{
-  "GPT4oEndpoint": "your-gpt4o-endpoint",
-  "GPT4oApiKey": "your-gpt4o-api-key",
-  "Phi3medium128kinstructEndpoint": "your-phi3medium128kinstruct-endpoint",
-  "Phi3medium128kinstructApiKey": "your-phi3medium128kinstruct-api-key",
-  "MistralNemo128kEndpoint": "your-mistralnemo128k-endpoint",
-  "MistralNemo128kApiKey": "your-mistralnemo128k-api-key",
-  "MetaLlama31405BEndpoint": "your-metallama31405b-endpoint",
-  "MetaLlama31405BApiKey": "your-metallama31405b-api-key",
-  "CohereCommandRPlusEndpoint": "your-coherecommandrplus-endpoint",
-  "CohereCommandRPlusApiKey": "your-coherecommandrplus-api-key"
-}
-```
+`config.json` is gitignored — it's your local list of LLM configs (`ApiConfigs`, matching
+`config.example.json`'s shape: `Name`, `BaseUrl`, `ApiKey`, `MaxContextWindowTokens`, optional
+`Model`). `BaseUrl` is the server's OpenAI-compatible base (e.g. `http://localhost:1234/v1` for
+LM Studio, `http://localhost:11434/v1` for Ollama, `http://localhost:8000/v1` for a default vLLM
+`--served-model-name` setup) - no `/chat/completions` suffix, the server appends that itself. The
+server keeps `BaseUrl`/`ApiKey` on the backend; the browser only ever sees an LLM's
+`name`/`maxContextWindowTokens`/detected `model`.
 
-## Build and Run:
+`presets.json` and `chat-history.json` are plain local JSON files the server reads/writes as you
+use the app.
 
-Open the solution in Visual Studio or your preferred .NET IDE.
-Build the project and run the application.
+## Architecture
 
-## Usage
-Selecting an LLM:
-
-Use the dropdown menu to select your preferred LLM from the available options.
-Entering a Prompt:
-
-Type your code-related question or prompt in the input box and click "Send".
-Viewing Responses:
-
-The LLM's response will appear in the output box.
-Managing Chat History:
-
-Previous user prompts can be selected from the dropdown to reuse or edit.
-Customizing Settings:
-
-The settings in secrets.json can be adjusted to update API keys and endpoints.
-
-## Contributing
-Contributions are welcome! Please fork the repository and submit a pull request.
-
-## License
-This project is licensed under the MIT License. See the LICENSE file for more details.
+- `server.js` — Express app. Serves `public/` and exposes:
+  - `GET /api/llm-configs` — configs for the dropdown (name/model/max-context only).
+  - `GET`/`PUT /api/settings` — full config CRUD for the Settings panel (includes `BaseUrl`/`ApiKey`).
+  - `POST /api/chat` — resolves the model (pinned `Model`, or auto-detected via `GET
+    {baseUrl}/models`) and proxies the chat-completion call to the selected config's `BaseUrl`.
+  - `GET /api/file` — extracts a line range from a file on disk.
+  - `GET`/`PUT /api/presets`, `GET`/`POST /api/history`.
+- `public/` — the whole frontend: `index.html` + `style.css` + `app.js`, no build step.
