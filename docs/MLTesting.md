@@ -212,6 +212,75 @@ conclusions: whether 36 (the traditional "minimum recommended" total) is being c
 of both groups regardless of outcome, and whether individual Kuta factors (not just the summed
 total) carry more signal than the sum does.
 
+## Bugs found and fixed along the way
+
+Building and running this pipeline against real data surfaced several real, pre-existing (or
+newly-introduced) bugs. Listed in the order they were hit:
+
+1. **Rodden-AA filter matched zero people** (`DashaValidationPipeline.cs`,
+   `KutaValidationPipeline.cs`). Both `BuildCandidateSet()`/`BuildCoupleCandidateSet()` originally
+   filtered `PersonListEntity.Notes` with `Contains("\"rodden\": \"AA\"")` — valid *JSON*
+   double-quote syntax. The actual data in `PersonList-15k.csv`'s `Notes` column is
+   Python-dict-style single quotes: `{'rodden': 'AA'}`. The filter would have silently returned
+   an empty candidate set every run. **Why it happened**: assumed JSON without checking a real
+   row first. **Fix**: match the single-quoted form instead, with a comment noting the format.
+
+2. **`VimshottariDasa.DasaPeriodsOld` took 30+ minutes for a single candidate** (see "Real-run
+   correction" under Phase 1 above) — a brute-force scan via `EventManager.CalculateEvents`
+   across ~351 tagged astrological rules × ~1,739 time samples (100 years at 504-hour
+   resolution), all 4 Dasha levels every time. **Why it happened**: this method is generic
+   Muhurtha/event-finder infrastructure repurposed for Dasha timing, not built for it — real
+   Vimshottari Dasha is a closed-form sequence, not something that needs scanning. **Fix**:
+   `PredictedMarriageWindow` now samples `VimshottariDasa.CurrentDasa8Levels` (an O(1) analytic
+   lookup, same one the live API/Muhurtha logic already uses) monthly instead, cutting per-candidate
+   time from ~30 minutes to ~0.03-0.05 seconds.
+
+3. **`VimshottariDasa.DasaPeriodsOld`'s `levels` parameter was dead code** (`Library/Logic/Calculate/VimshottariDasa.cs`).
+   Discovered while diagnosing #2: the method accepts a `levels` argument but its body always
+   built `tagList` with all 4 hardcoded PD tags regardless of what was passed in — so a caller
+   asking for `levels: 2` silently paid for all 4 levels anyway. **Why it happened**: the tag
+   list was written before the `levels` parameter was added (or the parameter was added without
+   wiring it through) and nothing ever exercised it enough to notice. **Fix**: `tagList` is now
+   `allLevelTags.Take(Math.Clamp(levels, 1, allLevelTags.Count))`, so the parameter is honored.
+   This method has zero live callers anywhere in the codebase (API/Website/WebsiteNative/tests),
+   so the fix has no behavioral impact on the running product — it only fixes the bug for
+   whichever future caller (like this pipeline almost was) relies on `levels` actually working.
+
+4. **Wrong local DB password, causing a silent fallback** (`MatchMLPipeline` project). Neither
+   pipeline nor `CsvSeeder` had a `dotnet user-secrets` connection string configured, so
+   `DatasetFactory.CreateDbContextFactory()` fell back to its hardcoded placeholder password
+   (`postgres`) instead of the real local dev password in `API/appsettings.Development.json`,
+   causing an `Npgsql.PostgresException: password authentication failed`. **Fix**: set the real
+   connection string via `dotnet user-secrets set "ConnectionStrings:Postgres" "..."` scoped to
+   the `MatchMLPipeline` project (see "Seeding and running" below).
+
+5. **Nested-parallelism thread-pool starvation** (both pipelines, since fixed by #2 making it
+   moot for Phase 1, but the lesson stands for Phase 2 too). An early version wrapped each
+   pipeline's per-candidate loop in an outer `Parallel.ForEach`, not realizing
+   `EventManager.CalculateEvents` (called transitively via the old `DasaPeriodsOld` path) already
+   ran its own internal `Parallel.ForEach`/`Parallel.For`. Stacking an outer parallel loop on top
+   oversubscribed the thread pool rather than speeding anything up. **Fix**: both
+   `RunValidation()` methods run sequentially with periodic throughput logging instead; per-item
+   cost is now cheap enough (Phase 1 fixed by #2; Phase 2 was already cheap) that sequential
+   execution finishes quickly on its own.
+
+6. **`GetMarriages()` NullReferenceException risk** (`Library/Logic/MatchMLDatasetEntityExtensions.cs`,
+   pre-existing shared helper, newly exercised by both pipelines). Threw if a marriage record's
+   `Info` JSON parsed successfully but had no top-level `"marriages"` array (e.g. a malformed or
+   truncated LLM reply) — and neither pipeline's row-scanning loop guarded against it, so one bad
+   row would crash the entire multi-minute run. **Fix**: null-check the `"marriages"` token
+   before iterating, returning an empty list instead of throwing.
+
+7. **Silent exception swallowing in `KutaValidationPipeline.RunValidation()`**. A
+   `catch (Exception) { continue; }` around `GetNewMatchReport` discarded failures with zero
+   logging, unlike this same project's own convention (`DatasetFactory` logs `"FAIL...Moving on"`
+   before continuing) — making a lower-than-expected `Scored couples` count unexplainable after
+   the fact. **Fix**: log the failing couple's names and the exception message before skipping.
+
+8. **O(n²) batching in `CsvSeeder.InsertInBatches`**. Used `entities.Skip(i).Take(BatchSize)` on
+   a `List<T>`, which re-walks the list from the start every batch. Harmless at ~15.8k rows but
+   wasteful if the CSVs grow. **Fix**: `entities.GetRange(i, count)` instead — O(1) per batch.
+
 ## Seeding and running
 
 ```bash
