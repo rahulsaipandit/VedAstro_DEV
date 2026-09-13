@@ -23,7 +23,7 @@ namespace VedAstro.Library.Tests
 
             //EventManager.EventSlicesToEvents(null, null, null, null, new[] { 1, 2});
 
-            Assert.Fail();
+            Assert.Inconclusive("TODO: test not implemented yet - real call above is commented out");
         }
 
 

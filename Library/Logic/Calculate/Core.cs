@@ -959,16 +959,20 @@ namespace VedAstro.Library
         }
 
         /// <summary>
-        /// Gets the House number a given planet is in at a time
-        /// based on house sign NOT longitude
+        /// Gets the House number a given planet is in at a time, based on whole-sign (Rasi) house
+        /// placement - i.e. which sign, counted from Lagna, the planet's own sign falls in - as
+        /// opposed to HousePlanetOccupiesBasedOnLongitudes, which uses Sripati/Bhava Chalit cuspal
+        /// house ranges. Classical Ashtakavarga rules (per B.V. Raman) are worked out strictly on
+        /// Rasi house placement, so callers computing Ashtakavarga yogas should use this, not the
+        /// longitude-based version.
         /// </summary>
         public static HouseName HousePlanetOccupiesBasedOnSign(PlanetName planetName, Time time)
         {
             // Get the sign of the planet
             var planetSign = Calculate.PlanetRasiD1Sign(planetName, time);
 
-            // Get all signs of houses at middle longitude
-            var houseSigns = Calculate.AllHouseZodiacSigns(time);
+            // Get the whole-sign (Rasi) sign for each house, counted from Lagna
+            var houseSigns = Calculate.AllHouseRasiSigns(time);
 
             // Find the house with the matching sign
             var foundHouse = houseSigns.Where(yy => yy.Value.GetSignName() == planetSign.GetSignName()).FirstOrDefault();
@@ -3190,23 +3194,17 @@ namespace VedAstro.Library
         public static bool IsPlanetInOwnSign(PlanetName planetName, Time time)
         {
             //find out if planet is rahu or ketu, because not all calculations supported
-            var isRahuKetu = planetName == Rahu || planetName == Ketu;
+            if (planetName == Rahu || planetName == Ketu) { return false; }
 
-            //get current house
-            var _planetCurrentHouse = HousePlanetOccupiesBasedOnSign(planetName, time);
+            //NOTE: previously routed through HousePlanetOccupiesBasedOnSign (whole-sign) ->
+            //PlanetRelationshipWithHouse (which internally decodes the house number back to a sign
+            //via the cuspal/Bhava-Chalit HouseSignName) - a mismatched round-trip between two
+            //different house conventions that could land on the wrong sign. Compare the planet's
+            //own Rasi sign directly instead, same pattern as IsPlanetInFriendSign/IsPlanetInEnemySign above.
+            var currentPlanetSign = Calculate.PlanetRasiD1Sign(planetName, time);
+            var signRelationship = PlanetRelationshipWithSign(planetName, currentPlanetSign.GetSignName(), time);
 
-            //relationship with current house
-            var _currentHouseRelation = isRahuKetu ? 0 : PlanetRelationshipWithHouse(_planetCurrentHouse, planetName, time);
-
-            //relation should be own
-            if (_currentHouseRelation == PlanetToSignRelationship.OwnVarga)
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+            return signRelationship == PlanetToSignRelationship.OwnVarga;
         }
 
         /// <summary>
