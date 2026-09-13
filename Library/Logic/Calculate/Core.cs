@@ -803,13 +803,17 @@ namespace VedAstro.Library
         }
 
         /// <summary>
-        /// Gets list of all planets that's in a house at a given time based on sign the
-        /// house and planet is in and not house longitudes. Method 2.
+        /// Gets list of all planets that's in a house at a given time based on the whole-sign
+        /// (Rasi) sign of the house and planet, not house longitudes/cusps. Method 2.
         /// </summary>
         public static List<PlanetName> PlanetsInHouseBasedOnSign(HouseName houseNumber, Time time)
         {
-            //get house sign
-            var houseSign = Calculate.HouseSignName(houseNumber, time);
+            //get house's whole-sign (Rasi) sign, counted from Lagna - NOTE: previously used
+            //HouseSignName, which computes the sign at the house's Bhava-Chalit cuspal middle
+            //longitude, not true whole-sign. That let two different houses land on the same sign
+            //(and so return the same planet for both) whenever cuspal house widths stretched or
+            //compressed enough near a sign boundary - same root cause as HousePlanetOccupiesBasedOnSign.
+            var houseSign = Calculate.HouseRasiSign(houseNumber, time).GetSignName();
 
             //get all planets in sign
             var planetsInSign = Calculate.PlanetsInSign(houseSign, time);
