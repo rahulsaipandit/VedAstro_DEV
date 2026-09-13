@@ -195,17 +195,6 @@ largeCodeSnippet.addEventListener("input", () => {
 });
 snippetInjectCheckbox.addEventListener("change", updateGlobalTokenStats);
 
-// ---------- language detection (ported from GetCodeFileFullName) ----------
-const EXTENSION_TO_LANGUAGE = {
-  js: "JavaScript", cs: "C#", html: "HTML", py: "Python", java: "Java",
-  cpp: "C++", c: "C", php: "PHP", rb: "Ruby", swift: "Swift", go: "Go",
-  ts: "TypeScript", vb: "Visual Basic", sql: "SQL",
-};
-function guessLanguageFromPath(filePath) {
-  const ext = (filePath.split(".").pop() || "").toLowerCase();
-  return EXTENSION_TO_LANGUAGE[ext] || "";
-}
-
 // ---------- file inject rows ----------
 function createFileInjectRow(data = {}) {
   const row = document.createElement("div");
@@ -272,8 +261,7 @@ function createFileInjectRow(data = {}) {
         endInput.value = body.maxLines;
       }
       codeTextarea.value = body.extractedCode;
-      const langName = body.languageName || guessLanguageFromPath(filePath);
-      prePromptInput.value = `Analyse and parse below ${langName} code`;
+      prePromptInput.value = `Analyse and parse below ${body.languageName} code`;
       postPromptInput.value = "Ok, I've parsed the code";
       updateRowStats();
       showSavePresetButton();

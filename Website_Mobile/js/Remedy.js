@@ -1,4 +1,0 @@
-updateHistory();
-
-
-new PageHeader("PageHeader");
