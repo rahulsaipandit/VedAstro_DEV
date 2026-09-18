@@ -150,8 +150,10 @@ namespace VedAstro.Console
                         System.Console.WriteLine("Start & End of Possible Birth Hour");
                         var startHour = GetInputFromUser("START TIME (00:00-23:59) ?");
                         var endHour = GetInputFromUser("END TIME (00:00-23:59) ?");
+                        var ayanamsaInput = GetInputFromUser("Ayanamsa (blank = Raman) ?");
+                        var ayanamsaName = string.IsNullOrWhiteSpace(ayanamsaInput) ? "Raman" : ayanamsaInput;
 
-                        await FindBirthTimeEventsChartPerson(personId, maxWidth, precisionInHours, startDate, endDate, startHour, endHour);
+                        await FindBirthTimeEventsChartPerson(personId, maxWidth, precisionInHours, startDate, endDate, startHour, endHour, ayanamsaName);
 
                         break;
                     }
@@ -174,9 +176,11 @@ namespace VedAstro.Console
 
         }
 
-        private static async Task FindBirthTimeEventsChartPerson(string personId, int maxWidth, double precisionInHours, string startYear, string endYear, string startHour, string endHour)
+        private static async Task FindBirthTimeEventsChartPerson(string personId, int maxWidth, double precisionInHours, string startYear, string endYear, string startHour, string endHour, string ayanamsaName)
         {
-            Calculate.Ayanamsa = (int)SimpleAyanamsa.Raman;
+            //Raman is the default because the PD1-PD7 Panchadasa dasa periods below assume its
+            //360-day solar year convention (see VimshottariDasa.cs)
+            Calculate.Ayanamsa = (int)Tools.EnumFromUrl($"/Ayanamsa/{ayanamsaName}");
 
             //ACT 1 : Generate data needed to make charts
             //get person specified by caller

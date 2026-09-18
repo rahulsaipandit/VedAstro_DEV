@@ -43,8 +43,8 @@ Listens on `http://localhost:7071` (Kestrel).
 ### 3a — Website (Blazor WASM) — old frontend, still maintained
 
 ```bash
-cd Website
-dotnet run
+~~~cd Website~~~
+~~~dotnet run~~~
 ```
 
 Listens on `http://localhost:5000` (prints the exact URL on startup). By default it

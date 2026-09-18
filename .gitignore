@@ -400,7 +400,8 @@ Desktop/InnoSetupOutput/VedAstroSetup.exe
 /Library/Secrets-HideMe.cs
 
 MatchMLPipeline/secrets.json
-/LLMCoder/secrets.json
+/LLMCoder/config.json
+/LLMCoder/node_modules/
 
 .idea/
 HuggingFace/PersonNameEmbeddings-15k.csv

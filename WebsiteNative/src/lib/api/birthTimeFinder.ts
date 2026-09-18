@@ -17,6 +17,8 @@ export type BirthTimeFinderOptions = {
   startHour?: string;
   /** HH:mm, defaults to 23:59 on the server */
   endHour?: string;
+  /** defaults to "Raman" on the server - see AYANAMSA_GROUPS */
+  ayanamsaName?: string;
 };
 
 /** Fetches the combined "possible birth times" SVG for a person from the server. */
@@ -32,6 +34,7 @@ export async function getBirthTimeFinderSvg(
   if (options?.endDate) params.set('endDate', options.endDate);
   if (options?.startHour) params.set('startHour', options.startHour);
   if (options?.endHour) params.set('endHour', options.endHour);
+  if (options?.ayanamsaName) params.set('ayanamsaName', options.ayanamsaName);
 
   const query = params.toString();
   const url = `${apiUrlDirect}/FindBirthTime/EventsChart/PersonId/${personId}${query ? `?${query}` : ''}`;

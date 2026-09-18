@@ -1036,6 +1036,100 @@ endpoint generically (one test case using tags `Gochara,General`), but nothing n
 the naming similarity — it's for birth-time rectification search over unknown birth times, not
 electional/muhurtha search, and should not be conflated with GoodTimeFinder.)
 
+### Birth Time Rectification (BirthTimeFinderAPI)
+
+A single endpoint, `API/FrontDesk/BirthTimeFinderAPI.cs:1-95`, implements birth-time
+rectification — helping a practitioner recover an unknown/uncertain birth time for an existing
+saved person. The file's own doc comment (line 6) describes the approach as a "dictionary attack
+on time," which is accurate: there is no automated scoring or best-fit selection anywhere in this
+code; it renders every candidate time's chart for a human to compare against known life events.
+
+`GET /api/FindBirthTime/EventsChart/PersonId/{personId}` (query params: `maxWidth`,
+`precisionInHours`, `startDate`, `endDate`, `startHour`, `endHour`):
+
+1. **Candidate generation** (lines 43-45) — sweeps an hour window on the person's existing birth
+   date, defaulting to the whole day (`00:00`–`23:59`, overridable via `startHour`/`endHour`), at a
+   step size of `precisionInHours` (default 1 hour), via `Time.GetTimeListFromRange`.
+2. **Per-candidate chart** (lines 50-70) — for each candidate time, clones the person with
+   `foundPerson.ChangeBirthTime(possibleTime)` and generates a full life-span Events Chart
+   (`EventsChartFactory.GenerateEventsChart`) covering Panchadasa levels `PD1`–`PD7` and three
+   algorithms (`Algorithm.General`, `Algorithm.IshtaKashtaPhalaDegree`,
+   `Algorithm.PlanetStrengthDegree`). The time range defaults to birth date → birth date + 100
+   years (lines 32-37), overridable via `startDate`/`endDate`.
+3. **Stacked comparison image** (lines 47-79) — each candidate's chart is labeled with its
+   adjusted birth time above it, and all candidates are stacked vertically into one combined SVG
+   returned as a single image (`APITools.SendSvgToCaller`).
+
+In short: the practitioner picks a hour window and precision, gets back one image containing a
+stack of "what if born at this time" life-event charts, and manually picks whichever candidate's
+dasha/event timeline best matches the person's actual known life events. No integration test
+exists yet for this endpoint.
+
+**Ayanamsa**: the endpoint takes an optional `ayanamsaName` query param (default `"Raman"`),
+parsed via the same `Tools.EnumFromUrl($"/Ayanamsa/{ayanamsaName}")` convention
+`OpenAPI.cs:228-246`'s `ParseAndSetAyanamsa` uses, and sets the process-wide
+`Calculate.Ayanamsa` explicitly on every request. Raman is the default (not arbitrary) because
+`VimshottariDasa.cs:766-771` switches the dasha engine's solar-year length to the classical
+360-day BV Raman/Parasara convention specifically when `Calculate.Ayanamsa == Ayanamsa.RAMAN` —
+which is what the `PD1`-`PD7` Panchadasa event tags this endpoint charts are built on assume.
+Because `Calculate.Ayanamsa` is a static, process-wide mutable field rather than a per-request
+value, this endpoint must set it explicitly on every call rather than relying on whatever a
+previous, unrelated request last left it as (a real race condition under concurrent traffic that
+existed before this param was added, since the endpoint previously didn't touch
+`Calculate.Ayanamsa` at all).
+
+**A second, near-duplicate implementation of the same algorithm exists as a console tool**,
+`Console/Program.cs`. It's an interactive REPL (`Program.CreateInstance` → `ProcessControl`,
+looped via `goto Begin`) offering a numbered menu; only choice `"1"` ("Find Birth Time - Life
+Predictor - Person") is actually wired up — choices `"2"`/`"4"`/`"5"` are listed in the printed
+menu text but fall through the `switch` to the `default: "Coming soon"` case, i.e. they don't do
+anything yet.
+
+Selecting `"1"` runs `FindBirthTimeEventsChartPerson` (lines 179-261), which follows the same
+core steps as the API endpoint above — candidate time sweep via `Time.GetTimeListFromRange`,
+per-candidate `Person.ChangeBirthTime`, per-candidate `EventsChartFactory.GenerateEventsChart`
+with the same `PD1`-`PD7`/`General`+`IshtaKashtaPhalaDegree`+`PlanetStrengthDegree` options — with
+a few differences from the API version:
+
+- Inputs are collected interactively via `GetInputFromUser` (console prompts: person ID, max
+  width in px, scan precision in hours, chart start/end date, possible-birth-time start/end hour,
+  and an ayanamsa name defaulting to Raman when left blank — lines 143-154), not query-string
+  parameters, and there is no "default to full life" fallback — the console flow requires the
+  operator to type explicit start/end dates.
+- The person is fetched over the network via `Tools.GetPersonByIdViaAPI(personId, "101")` (calling
+  out to the API rather than reading local storage directly).
+- **Output is not one combined SVG.** The full candidate list is chunked into batches of 144
+  times each (`smallerLists`, lines 246-250), and `GenerateSVGFile` is called once per batch —
+  each batch's charts are stacked and wrapped into their own SVG (same
+  `EventsChartFactory.WrapSvgElements` stacking approach as the API version), then written to
+  `<Desktop>/VedAstro Console/{chartSignature}-{batchIndex}.svg` (lines 299-317 of the original
+  layout, now shifted by the ayanamsa lines above), so a wide hour-range/precision scan produces
+  multiple files on the desktop, not a single image. Each candidate chart is labeled with both the
+  STD and LMT birth-time strings (`adjustedBirthStd`/`adjustedBirthLmt`), whereas the API version
+  only shows one time string.
+- The parallel (`Parallel.ForEach`) version of the per-candidate chart-generation loop is present
+  in the file but commented out (lines 214-220, 231-241); the live code path is a plain sequential
+  `foreach` (lines 222-229).
+- Same explicit-Ayanamsa-setting fix as the API endpoint applies here too (lines 181-183): the
+  console tool now parses the operator's ayanamsa input the same way, via
+  `Tools.EnumFromUrl($"/Ayanamsa/{ayanamsaName}")`, instead of the previous unconditional
+  `Calculate.Ayanamsa = (int)SimpleAyanamsa.Raman`.
+
+**Frontend wiring (WebsiteNative / WebsiteMobile, not Blazor)**: the live UI for this feature is
+`WebsiteNative/src/app/BirthTimeFinder.tsx` and its byte-for-byte mirror
+`WebsiteMobile/src/app/BirthTimeFinder.tsx` (backed by `lib/api/birthTimeFinder.ts`'s
+`getBirthTimeFinderSvg`/`BirthTimeFinderOptions`, rendered by `components/BirthTimeFinderViewer.tsx`
+via `react-native-svg`'s `SvgXml`) — the Blazor `Desktop/Pages/BirthTimeFinder.razor` page is a
+separate, older surface and is not where new work on this feature belongs (see [Running the
+website locally](../CLAUDE.md) for why Blazor is being migrated away from). Both RN screens got:
+
+- `ayanamsaName` added to `BirthTimeFinderOptions` (`lib/api/birthTimeFinder.ts`), sent as an
+  `ayanamsaName` query param to the API only when set.
+- An "Advanced (optional)" collapsible panel (mirroring `GoodTimeFinder.tsx`'s existing pattern)
+  containing an Ayanamsa `Dropdown` populated from `constants/ayanamsa.ts`'s `AYANAMSA_GROUPS`,
+  defaulting to `"Raman"`, wired into the `handleCalculate` options passed down to
+  `BirthTimeFinderViewer`.
+
 ### Match / Compatibility Reports (MatchChecker → WebsiteNative)
 
 The Vedic compatibility ("Kuta"/Ashtakoot) feature was audited end-to-end this session and

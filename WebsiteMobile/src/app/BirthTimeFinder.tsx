@@ -5,10 +5,13 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { PersonSelector } from '@/components/PersonSelector';
 import { BirthTimeFinderViewer } from '@/components/BirthTimeFinderViewer';
+import { Dropdown } from '@/components/Dropdown';
+import { Icon } from '@/components/Icon';
 import { useTheme } from '@/hooks/use-theme';
 import { useAppStore } from '@/store/useAppStore';
 import { showErrorToast } from '@/lib/toast';
 import type { BirthTimeFinderOptions } from '@/lib/api/birthTimeFinder';
+import { AYANAMSA_GROUPS } from '@/constants/ayanamsa';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useDefaultPerson } from '@/hooks/use-default-person';
 
@@ -29,6 +32,8 @@ export default function BirthTimeFinderScreen() {
   const [precisionInHours, setPrecisionInHours] = useState('1');
   const [startHour, setStartHour] = useState('00:00');
   const [endHour, setEndHour] = useState('23:59');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [ayanamsaName, setAyanamsaName] = useState('Raman');
   const [calculated, setCalculated] = useState<{ personId: string; options: BirthTimeFinderOptions } | null>(null);
 
   function handleCalculate() {
@@ -48,7 +53,7 @@ export default function BirthTimeFinderScreen() {
 
     setCalculated({
       personId: person.id,
-      options: { precisionInHours: precision, startHour, endHour },
+      options: { precisionInHours: precision, startHour, endHour, ayanamsaName },
     });
   }
 
@@ -104,6 +109,22 @@ export default function BirthTimeFinderScreen() {
           </ThemedView>
         </ThemedView>
 
+        <Pressable onPress={() => setAdvancedOpen((v) => !v)} style={styles.advancedToggle}>
+          <Icon name={advancedOpen ? 'chevron-up' : 'settings'} size={16} color={theme.textSecondary} />
+          <ThemedText type="small" themeColor="textSecondary">
+            Advanced (optional)
+          </ThemedText>
+        </Pressable>
+
+        {advancedOpen && (
+          <ThemedView style={[styles.advancedPanel, { borderColor: theme.backgroundSelected }]}>
+            <ThemedText type="small" themeColor="textSecondary">
+              Ayanamsa
+            </ThemedText>
+            <Dropdown value={ayanamsaName} groups={AYANAMSA_GROUPS} onChange={setAyanamsaName} placeholder="Ayanamsa" />
+          </ThemedView>
+        )}
+
         <Pressable onPress={handleCalculate} style={styles.calculateButton}>
           <ThemedText type="smallBold" themeColor="background">
             Scan Possible Birth Times
@@ -149,6 +170,18 @@ const styles = StyleSheet.create({
   },
   input: {
     paddingVertical: Spacing.one,
+  },
+  advancedToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    alignSelf: 'flex-start',
+  },
+  advancedPanel: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: Spacing.three,
+    gap: Spacing.two,
   },
   calculateButton: {
     backgroundColor: '#0d6efd',

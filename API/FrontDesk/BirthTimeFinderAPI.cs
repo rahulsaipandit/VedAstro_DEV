@@ -17,10 +17,17 @@ namespace API
                 string? startDate = null,
                 string? endDate = null,
                 string? startHour = null,
-                string? endHour = null) =>
+                string? endHour = null,
+                string ayanamsaName = "Raman") =>
             {
                 try
                 {
+                    //Calculate.Ayanamsa is process-wide global state, so it must be set explicitly on
+                    //every request rather than relying on whatever a previous request last left it as.
+                    //Raman is the default because the PD1-PD7 Panchadasa dasa periods below assume its
+                    //360-day solar year convention (see VimshottariDasa.cs)
+                    Calculate.Ayanamsa = (int)Tools.EnumFromUrl($"/Ayanamsa/{ayanamsaName}");
+
                     //get person specified by caller
                     var foundPerson = Tools.GetPersonById(personId);
 
