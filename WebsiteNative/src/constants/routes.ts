@@ -30,6 +30,7 @@ export const PageRoute = {
   Numerology: 'Numerology',
   SunRiseSetTime: 'SunRiseSetTime',
   BirthTimeFinder: 'BirthTimeFinder',
+  BirthTimeQuestionnaire: 'BirthTimeQuestionnaire',
   LocalMeanTime: 'LocalMeanTime',
   Horoscope: 'Horoscope',
   FamilyChart: 'FamilyChart',

@@ -189,6 +189,7 @@ namespace API
             app.MapOpenApiEndpoints();
             app.MapPersonEndpoints();
             app.MapBirthTimeFinderEndpoints();
+            app.MapBirthTimeScoringEndpoints();
             app.MapEventsChartEndpoints();
             app.MapMatchEndpoints();
             app.MapSignInEndpoints();

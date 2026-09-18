@@ -28,36 +28,23 @@ namespace API
                     //360-day solar year convention (see VimshottariDasa.cs)
                     Calculate.Ayanamsa = (int)Tools.EnumFromUrl($"/Ayanamsa/{ayanamsaName}");
 
-                    //get person specified by caller
-                    var foundPerson = Tools.GetPersonById(personId);
-
                     //generate the needed charts
                     var eventTags = new List<EventTag> { EventTag.PD1, EventTag.PD2, EventTag.PD3, EventTag.PD4, EventTag.PD5, EventTag.PD6, EventTag.PD7 };
                     var algorithmFuncsList = new List<AlgorithmFuncs>() { Algorithm.General, Algorithm.IshtaKashtaPhalaDegree, Algorithm.PlanetStrengthDegree };
                     var summaryOptions = new ChartOptions(algorithmFuncsList);
 
-                    //time range defaults to full life (birth date -> birth date + 100 years), caller can override
-                    var startDateParsed = startDate ?? foundPerson.BirthDateMonthYear;
-                    var endDateParsed = endDate ?? $"{foundPerson.BirthDateMonthYear[..6]}{foundPerson.BirthYear + 100}";
-                    var start = new Time($"00:00 {startDateParsed} {foundPerson.BirthTimeZoneString}", foundPerson.GetBirthLocation());
-                    var end = new Time($"00:00 {endDateParsed} {foundPerson.BirthTimeZoneString}", foundPerson.GetBirthLocation());
-                    var timeRange = new TimeRange(start, end);
+                    //get person + candidate birth time sweep (shared with BirthTimeScoringAPI)
+                    var sweep = BirthTimeCandidateSweep.Build(personId, startDate, endDate, startHour, endHour, precisionInHours);
+                    var timeRange = sweep.LifeTimeRange;
 
                     //calculate based on max screen width,
                     var daysPerPixel = EventsChart.GetDayPerPixel(timeRange, maxWidth);
 
-                    //get list of possible birth times within the given hour range on the birth day (defaults to whole day)
-                    var startHourParsed = new Time($"{startHour ?? "00:00"} {foundPerson.BirthDateMonthYearOffset}", foundPerson.GetBirthLocation());
-                    var endHourParsed = new Time($"{endHour ?? "23:59"} {foundPerson.BirthDateMonthYearOffset}", foundPerson.GetBirthLocation());
-                    var possibleTimeList = Time.GetTimeListFromRange(startHourParsed, endHourParsed, precisionInHours);
-
                     var combinedSvg = "";
                     var chartYPosition = 30; //start with top padding
                     var leftPadding = 10;
-                    foreach (var possibleTime in possibleTimeList)
+                    foreach (var personAdjusted in BirthTimeCandidateSweep.CandidatePersons(sweep))
                     {
-                        //replace original birth time
-                        var personAdjusted = foundPerson.ChangeBirthTime(possibleTime);
                         var newChart = EventsChartFactory.GenerateEventsChart(personAdjusted, timeRange, daysPerPixel, eventTags, summaryOptions);
                         var adjustedBirth = personAdjusted.BirthTimeString;
 

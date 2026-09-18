@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -14,6 +15,7 @@ import type { BirthTimeFinderOptions } from '@/lib/api/birthTimeFinder';
 import { AYANAMSA_GROUPS } from '@/constants/ayanamsa';
 import type { Person } from '@/lib/api/person';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { PageRoute } from '@/constants/routes';
 
 /**
  * Port of Website/Pages/Calculator/BirthTimeFinder.razor (previously a stub — see
@@ -27,6 +29,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
  */
 export default function BirthTimeFinderScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const apiUrlDirect = useAppStore((s) => s.apiUrlDirect());
   const [person, setPerson] = useState<Person | null>(null);
   const [precisionInHours, setPrecisionInHours] = useState('1');
@@ -64,7 +67,11 @@ export default function BirthTimeFinderScreen() {
         <ThemedText themeColor="textSecondary" style={styles.subtitle}>
           Find a forgotten or uncertain birth time by generating a life-events chart for every
           candidate time in an hour range, then comparing them against remembered life events -
-          a "dictionary attack" on time.
+          a "dictionary attack" on time. Prefer answering questions instead? Try the{' '}
+          <ThemedText type="link" onPress={() => router.push(`/${PageRoute.BirthTimeQuestionnaire}` as never)}>
+            guided questionnaire
+          </ThemedText>
+          .
         </ThemedText>
 
         <PersonSelector label="Person" selectedPerson={person} onSelectPerson={setPerson} />

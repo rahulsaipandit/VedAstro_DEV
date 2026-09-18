@@ -1,3 +1,78 @@
+# Birth Time Rectification — Questionnaire-Driven Design
+
+## Current state
+
+`API/FrontDesk/BirthTimeFinderAPI.cs` and `Console/Program.cs` implement BTR as a "dictionary
+attack on time": sweep an hour window of candidate birth times, render each candidate's full
+life-span Events Chart, stack them into one image, and let the practitioner manually compare
+against known life events. There is no scoring or automated ranking anywhere in this path (see
+`docs/vedAstroArchitecture.md`'s "Birth Time Rectification (BirthTimeFinderAPI)" section for the
+full implementation walkthrough).
+
+The mockup below this section is the target UX for a questionnaire-driven alternative: instead of
+(or in addition to) visually comparing chart stacks, the practitioner answers a life-event
+questionnaire and the system returns candidate birth times ranked by confidence.
+
+## Relation to [btr-literature](https://github.com/ashoksainiengineer/btr-literature)
+
+btr-literature is a knowledge base of BTR rules (event-specific house/planet rules for marriage,
+career, death, health, etc.), methodologies (KP Cuspal Sub-Lord, Ruling Planets, Pranapada Lagna,
+Pancha Tatwa), and classical text references (BPHS, Jataka Parijata) — it has no calculation or
+charting code of its own. It is the natural source for the rule logic behind each questionnaire
+item below: each yes/no life-event question needs to map to a testable astrological
+condition (house lord placement, planetary affliction, dasha timing, etc.) that can be evaluated
+against a candidate chart, and btr-literature is where those rules would be sourced from rather
+than invented ad hoc.
+
+## Implemented design (backend + frontend built)
+
+All 95 questions in the mockup below are mapped and scored — not a curated subset. Rather than one
+bespoke condition method per question (494 already exist in `CalculateHoroscope.cs` for other
+chart features, but they're keyed to specific classical yogas, not this questionnaire), BTR reuses
+a small set of **generic, parameterized evaluators** built on existing `Calculate.*` primitives
+(`Library/Logic/Calculate/Core.cs`/`CoreRelationships.cs`), and each question just picks a
+House/Planet parameter:
+
+- `Library/Logic/Calculate/BirthTimeRectification/BtrAnswer.cs` — the 5-point answer scale
+  (`StronglyNo`..`StronglyYes`) and its weight (Skip=0, plain=1, Strongly=2).
+- `BtrCondition.cs` — `BtrEvaluator` (`HouseLordStrong`/`HouseLordAfflicted`/`PlanetWellPlaced`/
+  `PlanetAfflicted`) evaluated via `Calculate.LordOfHouse`, `Calculate.HousePlanetOccupiesBasedOnSign`,
+  `Calculate.IsPlanetExaltedSign`, `Calculate.IsPlanetConjunctWithMaleficPlanets`/
+  `IsPlanetAspectedByMaleficPlanets` — no new astronomical calculation, only composition.
+- `BtrQuestionBank.cs` — the 95-question table, each entry a `BtrQuestion(Id, Text, Category,
+  Tier, Rules)`. `Tier` is `Classical` when the question maps to a house whose classical
+  significations directly cover the life event (marriage→7th, father→9th/Sun, children→5th, etc.,
+  informed by [btr-literature](https://github.com/ashoksainiengineer/btr-literature)'s event rule
+  categories), or `Heuristic` when no specific event rule exists and a general planetary karaka
+  association is used instead (e.g. "enjoy reading/writing poetry?" → Mercury well placed).
+- `BtrScoringEngine.cs` — `ScoreCandidate` sums agreement between each answered rule and the
+  answer's direction, weighted by the answer's strength; `RankCandidates` min-max normalizes raw
+  scores across the candidate set into a 0–100% confidence and a High/Medium/Low tercile bucket
+  (the mockup's percentage + bucket labels below).
+- `BirthTimeCandidateSweep.cs` — the candidate-time-sweep logic shared between this and the
+  existing SVG endpoint (extracted out of `BirthTimeFinderAPI.cs` so neither duplicates it).
+- `API/FrontDesk/BirthTimeScoringAPI.cs` — `GET /api/FindBirthTime/Questions` (serves the question
+  bank so the frontend doesn't hardcode it) and `POST /api/FindBirthTime/Score/PersonId/{personId}`
+  (body: `{answers: [{questionId, answer}], ...same sweep params as BirthTimeFinderAPI}`, returns
+  ranked `[{Time, RawScore, ConfidencePercent, Bucket}]`).
+- `WebsiteNative/src/app/BirthTimeQuestionnaire.tsx` — the guided-questionnaire screen (paginated
+  by category, 5-chip answer selector), linked from `BirthTimeFinder.tsx`. Results render as a
+  **sorted list** with a confidence % + bucket badge rather than the mockup's literal radial
+  "hover wheel" — same information, no new visualization primitive built yet (possible follow-up
+  polish). Tapping a candidate reuses the existing `addPerson` "save as profile" flow.
+
+Tests: `LibraryTests/Logic/Calculate/BirthTimeRectification/BtrScoringEngineTests.cs` (blanket
+check that every question-bank rule evaluates without throwing, plus scoring/ranking behavior) and
+`API/API.IntegrationTests/BirthTimeScoringEndpointsTests.cs` (both endpoints end-to-end).
+
+**Known limitation carried over from the mockup itself:** questions stay plain Yes/No — no event
+dates are collected, so age/date-specific classical rules (e.g. "father died at age 7") are
+evaluated as "does this trait appear anywhere in the candidate's life chart" rather than being
+timed against dasha periods. Correlating answers with `VimshottariDasa.cs` timing for date-bearing
+questions is a natural next step, not yet implemented.
+
+## Questionnaire mockup (UX reference)
+
 date - 
 Bhopal, Madhya Pradesh, India
 

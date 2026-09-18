@@ -61,3 +61,81 @@ export async function getBirthTimeFinderSvg(
 function stripScripts(svg: string): string {
   return svg.replace(/<script[\s\S]*?(?:\/>|<\/script>)/gi, '');
 }
+
+/**
+ * Backs BirthTimeQuestionnaire.tsx. Mirrors API/FrontDesk/BirthTimeScoringAPI.cs's
+ * GET /api/FindBirthTime/Questions and POST /api/FindBirthTime/Score/PersonId/{personId} -
+ * the questionnaire-driven alternative to the SVG-stack flow above (see
+ * docs/BirthTimeFinder.md for the design).
+ */
+
+export type BtrRuleTier = 'Classical' | 'Heuristic';
+
+export type BtrQuestion = {
+  id: number;
+  text: string;
+  category: string;
+  tier: BtrRuleTier;
+};
+
+export type BtrAnswer = 'StronglyNo' | 'No' | 'Skip' | 'Yes' | 'StronglyYes';
+
+export type BtrConfidenceBucket = 'Low' | 'Medium' | 'High';
+
+export type BtrCandidateScore = {
+  time: string;
+  rawScore: number;
+  confidencePercent: number;
+  bucket: BtrConfidenceBucket;
+};
+
+/** Fetches the full BTR questionnaire (currently 95 questions) - single source of truth lives server-side in BtrQuestionBank. */
+export async function getBtrQuestions(apiUrlDirect: string): Promise<BtrQuestion[]> {
+  const response = await fetch(`${apiUrlDirect}/FindBirthTime/Questions`);
+  const json = await response.json();
+
+  if (!response.ok || json.Status !== 'Pass') {
+    throw new Error(json?.Payload ?? 'Failed to load BTR questionnaire');
+  }
+
+  return (json.Payload as any[]).map((q) => ({
+    id: q.Id,
+    text: q.Text,
+    category: q.Category,
+    tier: q.Tier,
+  }));
+}
+
+/** Scores every candidate time in the sweep against the given answers, ranked best-match first. */
+export async function scoreBirthTimeCandidates(
+  apiUrlDirect: string,
+  personId: string,
+  answers: { questionId: number; answer: BtrAnswer }[],
+  options?: BirthTimeFinderOptions
+): Promise<BtrCandidateScore[]> {
+  const response = await fetch(`${apiUrlDirect}/FindBirthTime/Score/PersonId/${personId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      answers,
+      precisionInHours: options?.precisionInHours,
+      startDate: options?.startDate,
+      endDate: options?.endDate,
+      startHour: options?.startHour,
+      endHour: options?.endHour,
+      ayanamsaName: options?.ayanamsaName,
+    }),
+  });
+  const json = await response.json();
+
+  if (!response.ok || json.Status !== 'Pass') {
+    throw new Error(json?.Payload ?? 'Failed to score birth time candidates');
+  }
+
+  return (json.Payload as any[]).map((c) => ({
+    time: c.Time,
+    rawScore: c.RawScore,
+    confidencePercent: c.ConfidencePercent,
+    bucket: c.Bucket,
+  }));
+}
