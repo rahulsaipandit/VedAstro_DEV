@@ -1698,3 +1698,18 @@ historical record):
     out-of-range auto-correction and try/catch fallback were silently dropped when it moved to
     `Calculate.LongitudeToLMTOffset` — a behavior change worth a deliberate decision, not restored
     here.
+22. **`WebsiteMobile/src/store/useAppStore.ts`'s persisted `debugMode` defaulted to `true`** — a
+    fresh install with no prior `AsyncStorage` state pointed every API call at the local dev API
+    (`http://localhost:7071`) instead of the deployed one, per `getApiUrlDirect`, leaving the app
+    non-functional out of the box for anyone without a local API server running. Contradicts this
+    project's own default (deployed API, opt-in localhost toggle — see [Running the website
+    locally](../CLAUDE.md)). Fixed by defaulting `debugMode` to `false`.
+23. **`WebsiteMobile/src/hooks/use-default-person.ts`'s `useDefaultPerson` effect never re-ran
+    after `lastUsedPersonId` hydrated** — its resolution effect had an empty `[]` dependency array,
+    so it only ever saw the value present on the very first render. Because `useAppStore`'s
+    `AsyncStorage`-backed `persist` middleware hydrates asynchronously, that first render always
+    sees `lastUsedPersonId === null`, and the effect silently never re-fired once the real
+    persisted id loaded a moment later — "default to last used person" never activated after an
+    app restart, only working within a session after the user manually re-picked a person. Fixed
+    by adding `lastUsedPersonId`, `apiUrlDirect`, `effectiveOwnerId`, and `visitorId` to the effect's
+    dependency array.
