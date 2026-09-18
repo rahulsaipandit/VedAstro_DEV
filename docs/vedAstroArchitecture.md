@@ -427,6 +427,37 @@ Two longitude concepts sit on top of this raw call, both in `Library/Logic/Calcu
   "best-effort reconstruction" that should be checked against a classical reference (e.g. BPHS)
   before being relied on for precise predictive work.
 
+**A `LibraryTests` audit (see `LibraryTests/TestAnalysis.md` for the full investigation log)
+found several more calculators carrying that same "best-effort, needs a classical source" caveat
+— some already self-documented as such, some not yet flagged before this audit:**
+- `ChestaBalaShashtiamsa` (`CoreMiscExtra.cs`, feeding `PlanetIshtaScore`/`PlanetKashtaScore`) is
+  a linear daily-motion-speed proxy for the real, discrete classical Cheshta Bala rule. Solving
+  the book's own Ishta/Kashta formula backward from its cited values (B.V. Raman, *Bhava & Graha
+  Bala* pg. 109) showed `UchchaBalaShashtiamsa` (the exaltation-distance half) is very likely
+  correct — it matches the book-implied value for the Sun almost exactly — while `ChestaBala` is
+  the actual source of the remaining gap; one of the book's own cited value pairs (Mercury) is
+  even mathematically impossible under the formula regardless of what this software computes,
+  suggesting a transcription error in that citation. Needs the real classical Cheshta Bala table
+  to fix with confidence, not a guess.
+- `BirthBird` (`CoreMisc.cs`, wrapped as `PanchaPakshiBirthBird`) — its own doc comment already
+  says "best-effort: uses birth constellation index mod 5," but the real classical Pancha Pakshi
+  system assigns birth birds via a day/night-dependent nakshatra-group table, not a sequential
+  index; no such table exists anywhere else in this codebase to substitute in.
+- `FirstVowelSound` (`CoreMiscExtra.cs`) was reverse-engineered from ~20 of its own test's worked
+  examples; its doc comment already flags that 2 of them (`PERUMAL`, `JACOB` → `"EA"`) don't
+  follow any pattern the rest of the algorithm is built from — they only make sense as entries in
+  a proprietary classical name-to-swara lookup table this repo doesn't have access to.
+- `KaalaVelaLongitude`'s Mrityu (Mars) Upagraha specifically was found off by ~74.8° against its
+  own test's book-cited value, while the other 5 Kalavela-family Upagrahas it computes (Kaala,
+  Arthaprahaara, Yamaghantaka, Gulika, Maandi) all pass within a tight 0.05° tolerance on the same
+  chart — isolating the bug to how Mars's 8th-of-day slot specifically gets resolved, not the
+  shared day/night-span or Ascendant-at-instant machinery. Same "needs the real classical
+  per-weekday table" situation as the others above.
+
+None of these four were fixed outright — each is left as a documented `Assert.Inconclusive` in
+`LibraryTests`, since a confident fix needs the actual classical reference table or source text,
+not a guess reverse-engineered from a single failing test case.
+
 The ayanamsa value itself comes from `GetAyanamsaDegrees(time)` (`CoreTime.cs:226`), which calls
 `swe_set_sid_mode(Calculate.Ayanamsa, 0, 0)` followed by `swe_get_ayanamsa_ut(julDayUt)` — i.e.
 it re-derives the ayanamsa for the exact instant being calculated (ayanamsa drifts ~1° every 72
@@ -1556,8 +1587,9 @@ left alone):
    frontend is a real, hard-to-reverse call better made deliberately, not as incidental cleanup.
 9. **DNS/hosting cutover to the new stack** — an infrastructure/ops action outside this repo.
 
-**Also fixed this session** (chart-rendering bugs found while working on the Horoscope page,
-unrelated to the Azure migration itself but worth keeping in the historical record):
+**Also fixed in later sessions** (bugs found while working on other things — chart rendering,
+the `LibraryTests` audit — unrelated to the Azure migration itself but worth keeping in the
+historical record):
 
 10. **`Constellation` didn't implement `IToJson`** — any endpoint returning a bare
     `Constellation` serialized to `{}` over the wire.
@@ -1632,3 +1664,37 @@ unrelated to the Azure migration itself but worth keeping in the historical reco
       `github.com/VedAstro/VedAstro`'s master branch — only *callers* exist there. Same
       "reconstructed, not restored" situation as `IndianChartFactory` (item below) — this repo's
       version is a best-effort reconstruction, not a verbatim restore.
+20. **Three variations of the same house-system bug, found via a `LibraryTests` audit** (see
+    `LibraryTests/TestAnalysis.md` for the full investigation log — unrelated to the Azure
+    migration, but the same kind of "found while auditing, worth keeping in the historical record"
+    item as the rest of this section). `HousePlanetOccupiesBasedOnSign`, `IsPlanetInOwnSign`, and
+    `PlanetsInHouseBasedOnSign` (all `Library/Logic/Calculate/Core.cs`) are documented/named as
+    whole-sign (Rasi) house helpers — the convention classical Ashtakavarga rules (B.V. Raman's
+    *Ashtakavarga System of Prediction*) are worked out on — but each instead matched a planet's
+    sign against a house's **Bhava Chalit** (Sripati cuspal-midpoint) sign. Confirmed structurally
+    broken, not just imprecise: for one test chart, `PlanetsInHouseBasedOnSign` had two different
+    houses (House1 and House2) both claim the same planet (Rahu) simultaneously — impossible under
+    any valid house system. Fixed all three to use the already-existing (but previously unused)
+    whole-sign `AllHouseRasiSigns`/`HouseRasiSign`; the `PlanetsInHouseBasedOnSign` fix was
+    independently cross-verified against a second, separately-implemented house method,
+    `CalculateKP.PlanetsInHouse` — the two now agree exactly, house by house. Two more tests
+    (`MarsAshtakavargaYoga8And12Test`, and `HoroscopePredictionsTest` — unrelated to Ashtakavarga
+    but sharing the same house-placement code path) started passing as a side effect; zero
+    regressions confirmed via full `LibraryTests` reruns at each step.
+21. **`Time.FromLMT` didn't exist**, blocking a real `LMTToSTDTest`. An earlier version of it was
+    found sitting in `Library/Data/Time_OldBackup.cs` — a full prior copy of `Time.cs` still
+    committed to the repo — but tracing through it showed it was itself broken: it called
+    `new Time(lmtParsed, geoLocation)` with a bare `DateTime`, which only compiled via C#'s
+    implicit `DateTime`→`DateTimeOffset` conversion; for an "Unspecified" `Kind` (exactly what its
+    own parsing produced), that conversion uses **the build machine's local system timezone**, not
+    the location's longitude, so it never performed a real LMT-to-STD conversion at all — it
+    silently produced a machine-dependent wrong answer. Implemented a correct
+    `FromLMT(string, TimeSpan, GeoLocation)` as a thin wrapper around the already-correct
+    `Time(LocalMeanTime, TimeSpan, GeoLocation)` constructor, taking an explicit STD offset rather
+    than guessing one — exactly what the old version got wrong. Comparing the two files also
+    surfaced (but didn't require fixing): `IToXml`/`ToXml()`/`FromXml(...)` were removed from
+    `Time.cs` entirely, with nothing left in `Library`/`API`/`Data` still calling them (consistent
+    with the project's JSON-first direction, left alone); `GetLocalTimeOffset`'s defensive
+    out-of-range auto-correction and try/catch fallback were silently dropped when it moved to
+    `Calculate.LongitudeToLMTOffset` — a behavior change worth a deliberate decision, not restored
+    here.
