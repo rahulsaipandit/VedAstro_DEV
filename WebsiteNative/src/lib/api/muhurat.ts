@@ -74,10 +74,15 @@ export async function getGandMoolPeriods(apiUrlDirect: string, date: BirthTimeJs
   return (json.Payload as any[]).map((p) => ({ start: p.Start, end: p.End }));
 }
 
-export async function getEkadashiCalendar(apiUrlDirect: string, year: number, location: GeoLocation): Promise<BirthTimeJson[]> {
+export type EkadashiOccurrence = {
+  name: string;
+  date: BirthTimeJson;
+};
+
+export async function getEkadashiCalendar(apiUrlDirect: string, year: number, location: GeoLocation): Promise<EkadashiOccurrence[]> {
   const url = `${apiUrlDirect}/Calculate/EkadashiCalendar/Year/${year}${geoLocationToUrl(location)}`;
   const response = await fetch(url);
   const json = await response.json();
   if (json.Status !== 'Pass') throw new Error('Failed to calculate Ekadashi calendar');
-  return json.Payload as BirthTimeJson[];
+  return (json.Payload as any[]).map((o) => ({ name: o.Name, date: o.Date }));
 }

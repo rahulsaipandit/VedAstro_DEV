@@ -101,19 +101,38 @@ namespace VedAstro.Library.Tests
         [TestMethod()]
         public void EkadashiCalendar_2024_ReturnsExpectedCountAllInRequestedYearAllTithiEleven()
         {
-            var dates = Calculate.EkadashiCalendar(2024, GeoLocation.Bangalore);
+            var occurrences = Calculate.EkadashiCalendar(2024, GeoLocation.Bangalore);
 
-            Assert.IsTrue(dates.Count is >= 24 and <= 26, $"Expected ~24-26 Ekadashis, got {dates.Count}");
+            Assert.IsTrue(occurrences.Count is >= 24 and <= 26, $"Expected ~24-26 Ekadashis, got {occurrences.Count}");
 
-            foreach (var date in dates)
+            foreach (var occurrence in occurrences)
             {
-                Assert.AreEqual(2024, date.GetStdDateTimeOffset().Year);
-                var lunarDateNumber = Calculate.LunarDay(date).GetLunarDateNumber();
+                Assert.AreEqual(2024, occurrence.Date.GetStdDateTimeOffset().Year);
+                var lunarDateNumber = Calculate.LunarDay(occurrence.Date).GetLunarDateNumber();
                 Assert.IsTrue(lunarDateNumber == 11 || lunarDateNumber == 26, $"Expected tithi 11 or 26, got {lunarDateNumber}");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(occurrence.Name), "Expected a non-empty classical name");
             }
 
-            var sorted = dates.OrderBy(d => d.GetStdDateTimeOffset()).ToList();
-            CollectionAssert.AreEqual(sorted.Select(d => d.GetStdDateTimeOffset()).ToList(), dates.Select(d => d.GetStdDateTimeOffset()).ToList(), "Expected dates already sorted ascending");
+            var sorted = occurrences.OrderBy(o => o.Date.GetStdDateTimeOffset()).ToList();
+            CollectionAssert.AreEqual(sorted.Select(o => o.Date.GetStdDateTimeOffset()).ToList(), occurrences.Select(o => o.Date.GetStdDateTimeOffset()).ToList(), "Expected occurrences already sorted ascending");
+        }
+
+        /// <summary>
+        /// Nirjala (Jyeshtha Shukla) and Mokshada (Maargasira Shukla) are the 2 anchor names whose
+        /// Purnimanta/Amanta month never differs (see EkadashiNamesByAmantaMonth's doc comment) -
+        /// this pins the naming table against real, unambiguous dates rather than only checking
+        /// "some non-empty name got attached".
+        /// </summary>
+        [TestMethod()]
+        public void EkadashiCalendar_2024_NamesNirjalaAndMokshadaCorrectly()
+        {
+            var occurrences = Calculate.EkadashiCalendar(2024, GeoLocation.Bangalore);
+
+            var nirjala = occurrences.Single(o => Calculate.LunarMonth(o.Date) == LunarMonth.Jyeshtha && Calculate.LunarDay(o.Date).GetLunarDateNumber() == 11);
+            Assert.AreEqual("Nirjala", nirjala.Name);
+
+            var mokshada = occurrences.Single(o => Calculate.LunarMonth(o.Date) == LunarMonth.Maargasira && Calculate.LunarDay(o.Date).GetLunarDateNumber() == 11);
+            Assert.AreEqual("Mokshada", mokshada.Name);
         }
     }
 }

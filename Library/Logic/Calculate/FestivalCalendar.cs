@@ -140,32 +140,78 @@ namespace VedAstro.Library
         }
 
         /// <summary>
-        /// Gets every Ekadashi (tithi 11 of each Shukla paksha, tithi 26 of each Krishna paksha) in
-        /// a Gregorian year - unlike <see cref="FestivalCalendar"/>'s once-per-year festivals,
-        /// Ekadashi recurs roughly every 15 days, so this walks every synodic month in and around
-        /// the year (same ~15-month scan window as <see cref="FindTithiInNijaMonth"/>, but without
-        /// that method's named-month filter, since Ekadashi isn't tied to one particular month
-        /// name) rather than dispatching through <see cref="FestivalDate"/>. Returns ~24 dates in a
-        /// normal year, more in a year containing an Adhika month.
+        /// Classical Ekadashi names, keyed by this codebase's Amanta lunar month convention (see
+        /// <see cref="LunarMonth"/>'s own doc comment) - most published Ekadashi-name calendars
+        /// instead use Purnimanta month names, which are offset from Amanta by exactly one month
+        /// on the Krishna-paksha half (the same shift <see cref="FestivalDate"/>'s doc comment
+        /// describes for Diwali/Holi/MahaShivaratri/KarwaChauth): an Amanta month's Krishna
+        /// Ekadashi carries the *next* Purnimanta month's Krishna-paksha name, while its Shukla
+        /// Ekadashi keeps the same name under either convention.
+        ///
+        /// Cross-checked against 3 anchor points that are unambiguous regardless of convention
+        /// (their Shukla-paksha names don't shift): Nirjala Ekadashi (Jyeshtha Shukla), Mokshada
+        /// Ekadashi (Maargasira Shukla, Gita Jayanti), and Rama Ekadashi (Aaswayuja Krishna, falls
+        /// shortly before Diwali - matches <see cref="FestivalDate"/>'s own confirmed Diwali
+        /// date). Not independently verified against a full published year-calendar beyond that;
+        /// treat as best-effort pending that check, same caveat this file already applies to its
+        /// tithi-based festival conversions. Adhika (leap) months have no classical Ekadashi names
+        /// of their own - conventionally called "Purushottama"/"Kamala" Ekadashi and not modelled
+        /// here; an Adhika month's Ekadashi is named after its underlying Nija month instead (same
+        /// modulo-12 fallback <see cref="VedicBirthDate"/> uses).
         /// </summary>
-        public static List<Time> EkadashiCalendar(int year, GeoLocation location)
+        private static readonly Dictionary<LunarMonth, (string Shukla, string Krishna)> EkadashiNamesByAmantaMonth = new()
         {
-            var dates = new List<Time>();
+            [global::VedAstro.Library.LunarMonth.Chaitra] = ("Kamada", "Varuthini"),
+            [global::VedAstro.Library.LunarMonth.Vaisaakha] = ("Mohini", "Apara"),
+            [global::VedAstro.Library.LunarMonth.Jyeshtha] = ("Nirjala", "Yogini"),
+            [global::VedAstro.Library.LunarMonth.Aashaadha] = ("Devshayani", "Kamika"),
+            [global::VedAstro.Library.LunarMonth.Sraavana] = ("Putrada", "Aja"),
+            [global::VedAstro.Library.LunarMonth.Bhaadrapada] = ("Parsva", "Indira"),
+            [global::VedAstro.Library.LunarMonth.Aaswayuja] = ("Papankusha", "Rama"),
+            [global::VedAstro.Library.LunarMonth.Kaarteeka] = ("Prabodhini", "Utpanna"),
+            [global::VedAstro.Library.LunarMonth.Maargasira] = ("Mokshada", "Saphala"),
+            [global::VedAstro.Library.LunarMonth.Pushya] = ("Putrada", "Shattila"),
+            [global::VedAstro.Library.LunarMonth.Maagha] = ("Jaya", "Vijaya"),
+            [global::VedAstro.Library.LunarMonth.Phaalguna] = ("Amalaki", "Papmochani"),
+        };
+
+        private static string EkadashiName(Time date, bool isShuklaPaksha)
+        {
+            var month = LunarMonth(date);
+            var nijaMonth = (int)month > 12 ? (LunarMonth)((int)month - 12) : month; //Adhika falls back to its base Nija month's name
+
+            var names = EkadashiNamesByAmantaMonth[nijaMonth];
+            return isShuklaPaksha ? names.Shukla : names.Krishna;
+        }
+
+        /// <summary>
+        /// Gets every Ekadashi (tithi 11 of each Shukla paksha, tithi 26 of each Krishna paksha),
+        /// with its classical name (see <see cref="EkadashiNamesByAmantaMonth"/>), in a Gregorian
+        /// year - unlike <see cref="FestivalCalendar"/>'s once-per-year festivals, Ekadashi recurs
+        /// roughly every 15 days, so this walks every synodic month in and around the year (same
+        /// ~15-month scan window as <see cref="FindTithiInNijaMonth"/>, but without that method's
+        /// named-month filter, since Ekadashi isn't tied to one particular month name) rather than
+        /// dispatching through <see cref="FestivalDate"/>. Returns ~24 occurrences in a normal
+        /// year, more in a year containing an Adhika month.
+        /// </summary>
+        public static List<EkadashiOccurrence> EkadashiCalendar(int year, GeoLocation location)
+        {
+            var occurrences = new List<EkadashiOccurrence>();
             var monthStart = PreviousNewMoon(new Time($"00:00 01/12/{year - 1} +00:00", location));
 
             for (var i = 0; i < 15; i++)
             {
                 var shuklaEkadashi = FindTithiInstant(monthStart, 11);
-                if (shuklaEkadashi.GetStdDateTimeOffset().Year == year) { dates.Add(shuklaEkadashi); }
+                if (shuklaEkadashi.GetStdDateTimeOffset().Year == year) { occurrences.Add(new EkadashiOccurrence(EkadashiName(shuklaEkadashi, true), shuklaEkadashi)); }
 
                 var krishnaEkadashi = FindTithiInstant(monthStart, 26);
-                if (krishnaEkadashi.GetStdDateTimeOffset().Year == year) { dates.Add(krishnaEkadashi); }
+                if (krishnaEkadashi.GetStdDateTimeOffset().Year == year) { occurrences.Add(new EkadashiOccurrence(EkadashiName(krishnaEkadashi, false), krishnaEkadashi)); }
 
                 monthStart = NextNewMoon(monthStart.AddHours(24));
             }
 
-            dates.Sort((a, b) => a.GetStdDateTimeOffset().CompareTo(b.GetStdDateTimeOffset()));
-            return dates;
+            occurrences.Sort((a, b) => a.Date.GetStdDateTimeOffset().CompareTo(b.Date.GetStdDateTimeOffset()));
+            return occurrences;
         }
 
         /// <summary>

@@ -101,19 +101,25 @@ Tithi/Vrat tabs). Ekadashi is tithi #11 of each paksha — same `FindTithiInNija
 `FestivalCalendar.cs` already uses for e.g. Diwali (tithi #30 Krishna), just run once per paksha
 instead of once per year. Plan:
 
-- Extend `FestivalName` enum with `EkadashiShukla`, `EkadashiKrishna`, and named Vrats the app
-  needs (Sankashti Chaturthi, Pradosh Vrat, ...).
-- `FestivalCalendar.cs`'s existing per-festival switch dispatches to the right tithi search;
-  Ekadashi needs a paksha-iterating wrapper (`EkadashiCalendar(year, location)` returning ~24
-  dates) rather than the single-per-year `FestivalDate` used elsewhere, since it recurs
-  fortnightly. Keep this as a sibling method next to `FestivalCalendar`, not a fork of it.
-- "My Tithi" (screenshot: user adds/tracks a custom personal tithi, e.g. a death anniversary
-  tithi, and the app surfaces its next occurrence) is a thin client-side feature on top of the
-  same tithi-instant search — no new calculation method, just a saved
-  `(LunarMonth, PacksaSide, TithiNumber)` tuple per user, resolved client- or server-side by
-  calling the same tithi-search primitive `FestivalCalendar.cs` already exposes internally.
-  Needs a small persistence surface (a `MyTithi` table keyed to `PersonId`/device) — see open
-  questions.
+- **Implemented.** `Calculate.EkadashiCalendar(year, location)` (a paksha-iterating sibling of
+  `FestivalCalendar`, not a fork of it) returns ~24-26 `EkadashiOccurrence { Name, Date }` values
+  per year. Resolved: names are attached via a classical-name lookup keyed by this codebase's
+  Amanta month convention (`EkadashiNamesByAmantaMonth` in `FestivalCalendar.cs`), converting
+  through the same Amanta/Purnimanta shift `FestivalDate`'s doc comment already describes for
+  Diwali/Holi/etc. Cross-checked against 3 convention-independent anchor names (Nirjala, Mokshada,
+  Rama) and pinned by test (`FestivalCalendarTests.cs`); not independently verified against a full
+  published year-calendar beyond that. `FestivalName` was **not** extended with Ekadashi values -
+  it doesn't fit that enum's once-per-year-per-name shape. Other Vrats (Sankashti Chaturthi,
+  Pradosh Vrat, Sankranti-adjacent vrats) are still unimplemented.
+- **Implemented, client-only.** "My Tithi" (screenshot: user adds/tracks a custom personal tithi,
+  e.g. a death anniversary tithi, and the app surfaces its next occurrence) needed **no backend
+  change at all** - `Calculate.VedicBirthDate(Time referenceDate, int year)` (already built for
+  VedicBirthday.tsx) *is* the generic "find this tithi's recurrence in a given year" primitive,
+  since a birth date is just a reference date carrying a tithi+lunar-month like any other. A saved
+  entry is `{ label, referenceDate }`, resolved by calling `VedicBirthDate` for the current year
+  (and next year if that occurrence has already passed). Persistence is local-device-only
+  (`useMyTithiStore`, zustand + AsyncStorage) - not synced to the server or attached to a
+  `Person`, so there's no cross-device sync yet if that's ever wanted.
 
 ### 2.6 Lagna tab in Muhurt screen
 
@@ -209,9 +215,12 @@ patterns:
    across regional systems) should be the default — needs a decision before implementing 2.2,
    ideally cross-checked against both reference repos plus a third source as this codebase's
    existing Panchang doc-comments already do for Choghadiya.
-2. **"My Tithi" persistence**: does it belong on the existing `Person` record (server-side,
-   synced) or as local device storage only? Affects whether this needs a `Data/Migrations` change
-   or is purely a WebsiteNative-local feature.
-3. **Ekadashi naming/scope**: does the app need all Ekadashi names (Nirjala, Devshayani, etc., ~24
-   distinct names/year) or just "Ekadashi" generically with a date list? Affects how large the
-   `FestivalName` enum extension in 2.5 needs to be.
+
+Resolved:
+- **"My Tithi" persistence** → local device storage only, no backend touch. Implemented as
+  `useMyTithiStore` (zustand + AsyncStorage); no `Data/Migrations` change, nothing added to
+  `Person`. Cross-device sync isn't available as a result — a future ask, not in scope here.
+- **Ekadashi naming/scope** → full classical names, not a generic date-only list. Implemented via
+  `EkadashiNamesByAmantaMonth` in `FestivalCalendar.cs` (see 2.5) rather than extending
+  `FestivalName`, since that enum's once-per-year-per-value shape doesn't fit a fortnightly
+  recurrence.

@@ -6,17 +6,18 @@ import { ThemedView } from '@/components/themed-view';
 import { GeoLocationInput } from '@/components/GeoLocationInput';
 import { MoonPhaseIcon } from '@/components/MoonPhaseIcon';
 import { PanchangDetailSheet } from '@/components/PanchangDetailSheet';
+import { MyTithiTab } from '@/components/MyTithiTab';
 import { Icon } from '@/components/Icon';
 import { useTheme } from '@/hooks/use-theme';
 import { useAppStore } from '@/store/useAppStore';
 import { showErrorToast } from '@/lib/toast';
 import type { BirthTimeJson } from '@/lib/time';
 import { getFestivalCalendar, FESTIVAL_NAMES, type FestivalCalendarResult, type FestivalName } from '@/lib/api/festivalCalendar';
-import { getEkadashiCalendar } from '@/lib/api/muhurat';
+import { getEkadashiCalendar, type EkadashiOccurrence } from '@/lib/api/muhurat';
 import type { GeoLocation } from '@/lib/api/geo';
 import { Spacing } from '@/constants/theme';
 
-const TABS = ['Festivals', 'Ekadashi & Vrat'] as const;
+const TABS = ['Festivals', 'Ekadashi & Vrat', 'My Tithi'] as const;
 type Tab = (typeof TABS)[number];
 
 const FESTIVAL_LABELS: Record<FestivalName, string> = {
@@ -74,7 +75,7 @@ export default function FestivalCalendarScreen() {
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<Tab>('Festivals');
   const [calendar, setCalendar] = useState<FestivalCalendarResult | null>(null);
-  const [ekadashiDates, setEkadashiDates] = useState<BirthTimeJson[] | null>(null);
+  const [ekadashiDates, setEkadashiDates] = useState<EkadashiOccurrence[] | null>(null);
   const [selected, setSelected] = useState<{ label: string; date: BirthTimeJson } | null>(null);
 
   async function handleCalculate() {
@@ -114,44 +115,48 @@ export default function FestivalCalendarScreen() {
           year. Tap a festival to see its day&apos;s Panchang.
         </ThemedText>
 
-        <ThemedView style={styles.fieldGroup}>
-          <ThemedText style={styles.fieldLabel}>Year</ThemedText>
-          <TextInput
-            value={year}
-            onChangeText={(t) => setYear(t.replace(/[^0-9]/g, '').slice(0, 4))}
-            keyboardType="number-pad"
-            maxLength={4}
-            placeholderTextColor={theme.textSecondary}
-            style={[styles.yearInput, { borderColor: theme.backgroundSelected, color: theme.text }]}
-          />
+        <ThemedView style={styles.tabRow}>
+          {TABS.map((t) => (
+            <Pressable
+              key={t}
+              onPress={() => setTab(t)}
+              style={[styles.tabChip, tab === t && styles.tabChipActive, { borderColor: theme.backgroundSelected }]}>
+              <ThemedText type="small" themeColor={tab === t ? 'background' : 'text'}>
+                {t}
+              </ThemedText>
+            </Pressable>
+          ))}
         </ThemedView>
 
-        <GeoLocationInput apiUrlDirect={apiUrlDirect} location={location} onChange={setLocation} label="Location" />
+        {tab !== 'My Tithi' && (
+          <>
+            <ThemedView style={styles.fieldGroup}>
+              <ThemedText style={styles.fieldLabel}>Year</ThemedText>
+              <TextInput
+                value={year}
+                onChangeText={(t) => setYear(t.replace(/[^0-9]/g, '').slice(0, 4))}
+                keyboardType="number-pad"
+                maxLength={4}
+                placeholderTextColor={theme.textSecondary}
+                style={[styles.yearInput, { borderColor: theme.backgroundSelected, color: theme.text }]}
+              />
+            </ThemedView>
 
-        <Pressable onPress={handleCalculate} disabled={loading} style={styles.calculateButton}>
-          {loading ? (
-            <ActivityIndicator size="small" color="#ffffff" />
-          ) : (
-            <ThemedText type="smallBold" themeColor="background">
-              Calculate
-            </ThemedText>
-          )}
-        </Pressable>
+            <GeoLocationInput apiUrlDirect={apiUrlDirect} location={location} onChange={setLocation} label="Location" />
 
-        {(calendar || ekadashiDates) && (
-          <ThemedView style={styles.tabRow}>
-            {TABS.map((t) => (
-              <Pressable
-                key={t}
-                onPress={() => setTab(t)}
-                style={[styles.tabChip, tab === t && styles.tabChipActive, { borderColor: theme.backgroundSelected }]}>
-                <ThemedText type="small" themeColor={tab === t ? 'background' : 'text'}>
-                  {t}
+            <Pressable onPress={handleCalculate} disabled={loading} style={styles.calculateButton}>
+              {loading ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <ThemedText type="smallBold" themeColor="background">
+                  Calculate
                 </ThemedText>
-              </Pressable>
-            ))}
-          </ThemedView>
+              )}
+            </Pressable>
+          </>
         )}
+
+        {tab === 'My Tithi' && <MyTithiTab apiUrlDirect={apiUrlDirect} />}
 
         {tab === 'Festivals' && sortedFestivals.length > 0 && (
           <ThemedView style={styles.list}>
@@ -183,16 +188,16 @@ export default function FestivalCalendarScreen() {
               Ekadashi (tithi 11 of each paksha) recurs roughly every 15 days - see
               Calculate.EkadashiCalendar. Other Vrats aren&apos;t computed yet.
             </ThemedText>
-            {ekadashiDates.map((date, i) => (
+            {ekadashiDates.map((occurrence, i) => (
               <Pressable
                 key={i}
-                onPress={() => setSelected({ label: 'Ekadashi', date })}
+                onPress={() => setSelected({ label: `${occurrence.name} Ekadashi`, date: occurrence.date })}
                 style={[styles.festivalRow, { borderColor: theme.backgroundSelected }]}>
                 <Icon name="moon" size={22} color={theme.textSecondary} />
                 <ThemedView style={styles.festivalText}>
-                  <ThemedText type="smallBold">Ekadashi</ThemedText>
+                  <ThemedText type="smallBold">{occurrence.name} Ekadashi</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
-                    {formatDate(date)}
+                    {formatDate(occurrence.date)}
                   </ThemedText>
                 </ThemedView>
                 <Icon name="chevron-right" size={16} color={theme.textSecondary} />
