@@ -209,6 +209,114 @@ patterns:
   via whatever hook/provider `FestivalCalendar.tsx`/`Horoscope/[personId].tsx` already use for
   theme switching), not just the light theme.
 
+## 4a. Day Clock screen (added after initial build)
+
+The reference screenshots' detailed radial "day clock" view (hour-ticked 24h face with the 8
+classical period names Usha/Purvaahna/Madhyahna/Aparahna/Saayankal/Pradosh/Nishith/Triyaam, plus a
+table where each Panchang limb shows its current value, when it changes, and what's next) and a
+compact "at a glance" widget version of the same idea (small arc + current time + Tithi + current
+Choghadiya + Dur Muhurta + Chaturmas/Gand Mool status) needed backend work beyond section 2:
+
+- **Per-limb transition finding** — `Calculate.TithiTransition` / `NakshatraTransition` /
+  `YogaTransition` / `KaranaTransition` (all in `Panchang.cs`), each returning
+  `{ Current, EndTime, Next }`. Implemented via one shared generic hour-stepping-then-bisecting
+  helper (`FindNextTransition`, reusing the same `BisectBoundary` GandMoolPeriods/LagnaPeriods
+  already use) rather than a per-limb closed-form formula, since it works uniformly regardless of
+  each limb's non-constant angular rate. Vaar/Choghadiya/Hora/Lagna needed no new calculator -
+  their existing period-list endpoints already carry start/end per period, so "current + when it
+  changes" is just picking whichever period contains "now" client-side.
+- **Dur Muhurta** — `Calculate.DurMuhurtaPeriods` (`Panchang.cs`): 1-2 fixed ~48-minute
+  inauspicious windows per weekday, distinct from Rahu/Gulika/Yamaganda Kaal. The weekday table
+  came from web search (2 independently-phrased sources agreeing on the same offsets), cross
+  validated by confirming all 8 stated offsets resolve to exact 1/15-of-a-day muhurta boundaries -
+  flagged in the code comment as best-effort pending a from-first-principles source, same caveat
+  applied to Ekadashi naming.
+- **Vikram Samvat** — `Calculate.VikramSamvatYear` (`Panchang.cs`): Gregorian year + 57 from that
+  year's own Chaitra Shukla Pratipada onward, +56 before it, reusing `FindTithiInNijaMonth`. A
+  well-defined, verifiable era conversion (unlike Dur Muhurta), so no accuracy caveat needed.
+- Frontend: `FullDayClock.tsx` (the detailed radial view, a more elaborate sibling of
+  `RadialDayClock.tsx`), `DayClockWidget.tsx` (the compact card, embedded at the top of
+  `Muhurt.tsx`), and a new `DayClock.tsx` screen for the full detail table.
+- Not implemented: the reference app's exact "(2 Mi) Magha, ..." parenthetical month/nakshatra
+  notation above the Vara/Samvat line - its meaning wasn't confidently identifiable, so it was
+  omitted rather than guessed at.
+
+## 4b. Full Panchang detail list (added after 4a)
+
+A further reference screenshot showed a much richer flat Panchang list (not the radial clock) -
+Purnimanta month, Moon/Sun Zodiac (with transition times for the Moon), Ritu, Ayana, 3 more
+calendar eras beyond Vikram Samvat, a North-Indian Samvatsara variant, and Moonrise/Moonset.
+Added to `DayClock.tsx`'s existing detail table (same file, more rows) rather than a new screen,
+since the row format already matched exactly:
+
+- **`Calculate.PurnimantaMonth`** (`Panchang.cs`) — derives Purnimanta from the existing Amanta
+  `LunarMonth` using the same Krishna-paksha-shifts-one-month-ahead rule `FestivalDate`'s doc
+  comment already documents. Verified against Diwali (Amanta Aaswayuja → Purnimanta Kaarteeka,
+  matching the popular "Kartik Amavasya" name).
+- **`Calculate.Ritu`** — classical 2-lunar-months-per-season table (Chaitra+Vaisaakha=Vasanta,
+  etc.), cross-checked against 3 independent sources. Note: one reference screenshot showed
+  "Sharad" for a date/Sun-position this table and every source found puts in "Varsha" - that
+  screenshot value wasn't trusted over 3 corroborating documented sources, so a discrepancy with
+  that one example is expected and was not chased.
+- **`Calculate.Ayana`** — Sun's sidereal longitude vs. the Karka/Makara Sankranti boundaries
+  (90°/270°) - unambiguous, no accuracy caveat.
+- **`Calculate.SamvatsaraName` / `SamvatsaraNameNorth`** — the 60-year Jupiter-cycle name.
+  `SamvatsaraName` (South Indian, mechanical civil count) is pinned against a published
+  Vikram-Samvat-to-name table (Wikipedia) and reproduces it exactly. `SamvatsaraNameNorth` uses a
+  fixed +14-name offset calibrated against a single confirmed example (VS 2083: south=Parabhava,
+  north=Raudri) rather than tracking actual historical Jupiter-resync skip years - flagged
+  best-effort in the code comment.
+- **`Calculate.GujaratiSamvatYear` / `SakaSamvatYear` / `KaliSamvatYear`** — same
+  `FindTithiInNijaMonth`-based New Year search as `VikramSamvatYear`, different epoch/rollover
+  rule each (Gujarati rolls over at Kartika Shukla Pratipada instead of Chaitra; Saka is epoch
+  -78; Kali is epoch +3101/3102). All 3 reproduce the exact values from the reference screenshot's
+  worked example (1948 Saka, 5127 Kali for the same date shown).
+- **`Calculate.MoonriseTime` / `MoonsetTime`** (`Core.cs`) — the same Swiss-Ephemeris
+  `swe_rise_trans` approach as `SunriseTime`/`SunsetTime`, duplicated rather than refactored into
+  a shared helper to avoid any risk of regressing those two heavily-used existing methods.
+- **`Calculate.MoonZodiacTransition`** — reuses the `FindNextTransition` helper from 4a.
+- Not implemented: **Solar Tithi** (a solar-calendar day count, e.g. Bengali/Odia-style). The
+  screenshot's own example was internally inconsistent (paired a solar month name with a Sun
+  Zodiac sign that don't correspond under any interpretation checked), and no reliable
+  documented source for this app's specific regional-solar-calendar convention was found - rather
+  than guess, this was left out.
+
+## 4c. Vrat & minor-festival list (added after 4b)
+
+A further reference screenshot showed a combined Vrat/minor-festival list (Festivals | My Tithi |
+Vrat | Sankranti tabs, a "Chaturmas Nd left" banner, per-row "in N days" countdowns, and multi-day
+ranged events with sub-items). Added to `FestivalCalendar.tsx` (renamed its "Ekadashi & Vrat" tab
+to "Vrat" and merged everything into one combined, sorted, future-only list) and a new "Sankranti"
+tab, rather than a new screen:
+
+- **3 new named festivals** — `HartalikaTeej`, `GaneshChaturthi`, `AnantChaturdashi` added to
+  `FestivalName`/`FestivalDate` (all Bhaadrapada Shukla, tithis 3/4/14 respectively) - well-known,
+  no accuracy caveat.
+- **4 new monthly-recurring Vrat calendars** — `PurnimaVratCalendar` (tithi 15), `AmavasyaVratCalendar`
+  (tithi 30), `SankashtiChaturthiCalendar` (tithi 19), `PradoshVratCalendar` (tithi 13 of each
+  paksha) - all built on a new shared `RecurringTithiCalendar` helper extracted from
+  `EkadashiCalendar` (which was refactored to use it too, behavior-unchanged, tests still pass).
+  Mechanically identical to how Ekadashi already worked, so no accuracy caveat.
+- **`Calculate.PitruPakshaPeriod`** — Bhaadrapada Purnima to the following Amavasya, same pattern
+  as `ChaturmasPeriod`. No accuracy caveat.
+- **`Calculate.JyeshthaGauriAvahana` / `JyeshthaGauriPoojan` / `JyeshthaGauriVisarjan`** — the one
+  genuinely new *kind* of search in this round: these 3 days aren't a fixed tithi at all, they're
+  whichever sunrise within Bhaadrapada Shukla paksha has the Moon in Anuradha/Jyeshtha/Moola
+  nakshatra respectively (a day-by-day nakshatra-at-sunrise scan, not a tithi-instant search).
+  Verified against a real published 2026 date (17/18/19 September) that this reproduces exactly.
+- **`Calculate.SankrantiCalendar`** — generalizes the existing `MakarSankrantiDate` search to all
+  12 Rashis for a year, seeded from the validated Makar anchor. Cross-checked against
+  `FestivalDate(MakarSankranti)` for consistency (same value via two different code paths).
+- Frontend: `FestivalCalendar.tsx` now has 4 tabs, a Chaturmas countdown banner (using the
+  `ChaturmasPeriod` calculator added in section 4, previously computed but never surfaced in any
+  UI), and per-row day countdowns. Countdown/filtering logic captures "now" once per Calculate
+  press (an event handler) rather than calling `Date.now()` during render, per the
+  `react-hooks/purity` lint rule.
+- Not implemented: a reference-date picker for the Vrat tab (countdowns are relative to whenever
+  Calculate was pressed, not an arbitrary picked date - the Festivals/Ekadashi tabs don't have a
+  date picker either, only a Year field, so this matches existing screen conventions rather than
+  the one reference screenshot's date-picker affordance).
+
 ## 5. Open questions
 
 1. **Rahu/Gulika/Yamaganda Kaal weekday tables**: which convention (there are minor variants

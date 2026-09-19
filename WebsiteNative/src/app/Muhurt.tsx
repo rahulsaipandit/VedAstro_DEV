@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { Link } from 'expo-router';
+
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BirthTimeInput, type BirthTimeInputValue } from '@/components/BirthTimeInput';
 import { RadialDayClock } from '@/components/RadialDayClock';
+import { DayClockWidget } from '@/components/DayClockWidget';
 import { SunriseSunsetReminderToggle } from '@/components/SunriseSunsetReminderToggle';
 import { useTheme } from '@/hooks/use-theme';
 import { useAppStore } from '@/store/useAppStore';
+import { PageRoute } from '@/constants/routes';
 import { showErrorToast } from '@/lib/toast';
 import { buildBirthTimeJsonFromWallClock, type BirthTimeJson } from '@/lib/time';
 import { getTimezoneOffsetForLocation, type GeoLocation } from '@/lib/api/geo';
@@ -148,6 +152,14 @@ export default function MuhurtScreen() {
         </ThemedText>
 
         <BirthTimeInput apiUrlDirect={apiUrlDirect} value={birthTime} onChange={setBirthTime} />
+
+        {date && <DayClockWidget apiUrlDirect={apiUrlDirect} date={date} />}
+
+        <Link href={`/${PageRoute.DayClock}` as never} asChild>
+          <Pressable>
+            <ThemedText type="linkPrimary">Open full Day Clock →</ThemedText>
+          </Pressable>
+        </Link>
 
         {loading && <ActivityIndicator style={styles.loading} />}
 

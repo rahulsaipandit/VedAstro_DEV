@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using static VedAstro.Library.PlanetName;
 
 namespace VedAstro.Library
@@ -39,6 +40,9 @@ namespace VedAstro.Library
                 FestivalName.Chhath => FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Kaarteeka, 6, year, location),
                 FestivalName.Diwali => FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Aaswayuja, 30, year, location),
                 FestivalName.MahaShivaratri => FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Maagha, 29, year, location),
+                FestivalName.HartalikaTeej => FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Bhaadrapada, 3, year, location),
+                FestivalName.GaneshChaturthi => FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Bhaadrapada, 4, year, location),
+                FestivalName.AnantChaturdashi => FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Bhaadrapada, 14, year, location),
                 _ => throw new Exception($"Festival {festival} not supported!")
             };
         }
@@ -185,33 +189,196 @@ namespace VedAstro.Library
         }
 
         /// <summary>
+        /// Gets every occurrence of a given tithi number across every synodic month in and around
+        /// a Gregorian year, filtered to that year - the shared "recurs every paksha/month, not
+        /// once a year" search pattern behind <see cref="EkadashiCalendar"/> and the monthly Vrat
+        /// calendars below (Purnima/Amavasya/Sankashti Chaturthi/Pradosh), extracted so those don't
+        /// each duplicate the same ~15-synodic-month scan loop.
+        /// </summary>
+        private static List<Time> RecurringTithiCalendar(int year, GeoLocation location, int tithiNumber)
+        {
+            var dates = new List<Time>();
+            var monthStart = PreviousNewMoon(new Time($"00:00 01/12/{year - 1} +00:00", location));
+
+            for (var i = 0; i < 15; i++)
+            {
+                var occurrence = FindTithiInstant(monthStart, tithiNumber);
+                if (occurrence.GetStdDateTimeOffset().Year == year) { dates.Add(occurrence); }
+
+                monthStart = NextNewMoon(monthStart.AddHours(24));
+            }
+
+            return dates;
+        }
+
+        /// <summary>
         /// Gets every Ekadashi (tithi 11 of each Shukla paksha, tithi 26 of each Krishna paksha),
         /// with its classical name (see <see cref="EkadashiNamesByAmantaMonth"/>), in a Gregorian
         /// year - unlike <see cref="FestivalCalendar"/>'s once-per-year festivals, Ekadashi recurs
-        /// roughly every 15 days, so this walks every synodic month in and around the year (same
-        /// ~15-month scan window as <see cref="FindTithiInNijaMonth"/>, but without that method's
-        /// named-month filter, since Ekadashi isn't tied to one particular month name) rather than
+        /// roughly every 15 days, so this uses <see cref="RecurringTithiCalendar"/> rather than
         /// dispatching through <see cref="FestivalDate"/>. Returns ~24 occurrences in a normal
         /// year, more in a year containing an Adhika month.
         /// </summary>
         public static List<EkadashiOccurrence> EkadashiCalendar(int year, GeoLocation location)
         {
             var occurrences = new List<EkadashiOccurrence>();
-            var monthStart = PreviousNewMoon(new Time($"00:00 01/12/{year - 1} +00:00", location));
-
-            for (var i = 0; i < 15; i++)
-            {
-                var shuklaEkadashi = FindTithiInstant(monthStart, 11);
-                if (shuklaEkadashi.GetStdDateTimeOffset().Year == year) { occurrences.Add(new EkadashiOccurrence(EkadashiName(shuklaEkadashi, true), shuklaEkadashi)); }
-
-                var krishnaEkadashi = FindTithiInstant(monthStart, 26);
-                if (krishnaEkadashi.GetStdDateTimeOffset().Year == year) { occurrences.Add(new EkadashiOccurrence(EkadashiName(krishnaEkadashi, false), krishnaEkadashi)); }
-
-                monthStart = NextNewMoon(monthStart.AddHours(24));
-            }
+            occurrences.AddRange(RecurringTithiCalendar(year, location, 11).Select(d => new EkadashiOccurrence(EkadashiName(d, true), d)));
+            occurrences.AddRange(RecurringTithiCalendar(year, location, 26).Select(d => new EkadashiOccurrence(EkadashiName(d, false), d)));
 
             occurrences.Sort((a, b) => a.Date.GetStdDateTimeOffset().CompareTo(b.Date.GetStdDateTimeOffset()));
             return occurrences;
+        }
+
+        /// <summary>Gets every Purnima (full moon, tithi 15) Vrat date in a Gregorian year - one per synodic month, ~12/year.</summary>
+        public static List<Time> PurnimaVratCalendar(int year, GeoLocation location)
+        {
+            var dates = RecurringTithiCalendar(year, location, 15);
+            dates.Sort((a, b) => a.GetStdDateTimeOffset().CompareTo(b.GetStdDateTimeOffset()));
+            return dates;
+        }
+
+        /// <summary>Gets every Amavasya (new moon, tithi 30) Vrat date in a Gregorian year - one per synodic month, ~12/year.</summary>
+        public static List<Time> AmavasyaVratCalendar(int year, GeoLocation location)
+        {
+            var dates = RecurringTithiCalendar(year, location, 30);
+            dates.Sort((a, b) => a.GetStdDateTimeOffset().CompareTo(b.GetStdDateTimeOffset()));
+            return dates;
+        }
+
+        /// <summary>Gets every Sankashti Chaturthi (Krishna-paksha Chaturthi, tithi 19) date in a Gregorian year - one per synodic month, ~12/year.</summary>
+        public static List<Time> SankashtiChaturthiCalendar(int year, GeoLocation location)
+        {
+            var dates = RecurringTithiCalendar(year, location, 19);
+            dates.Sort((a, b) => a.GetStdDateTimeOffset().CompareTo(b.GetStdDateTimeOffset()));
+            return dates;
+        }
+
+        /// <summary>Gets every Pradosh Vrat (Trayodashi, tithi 13 of each paksha) date in a Gregorian year - twice per synodic month, ~24/year, same shape as <see cref="EkadashiCalendar"/> but without a per-name lookup.</summary>
+        public static List<Time> PradoshVratCalendar(int year, GeoLocation location)
+        {
+            var dates = new List<Time>();
+            dates.AddRange(RecurringTithiCalendar(year, location, 13));
+            dates.AddRange(RecurringTithiCalendar(year, location, 28));
+
+            dates.Sort((a, b) => a.GetStdDateTimeOffset().CompareTo(b.GetStdDateTimeOffset()));
+            return dates;
+        }
+
+        /// <summary>
+        /// Gets the Pitru Paksha period (the 15-day span for ancestor remembrance) for a Gregorian
+        /// year: Bhaadrapada Purnima (tithi 15) to the following Amavasya (tithi 30) - both within
+        /// the same Amanta Bhaadrapada month, found the same way <see cref="ChaturmasPeriod"/>
+        /// finds its own start/end tithis.
+        /// </summary>
+        public static TimeRange PitruPakshaPeriod(int year, GeoLocation location)
+        {
+            var start = FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Bhaadrapada, 15, year, location);
+            var end = FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Bhaadrapada, 30, year, location);
+
+            return new TimeRange(start, end);
+        }
+
+        /// <summary>
+        /// Finds which sunrise within a search window around <paramref name="anchor"/> has the
+        /// Moon in <paramref name="target"/> nakshatra - the shared search behind
+        /// <see cref="JyeshthaGauriAvahana"/>/<see cref="JyeshthaGauriPoojan"/>/
+        /// <see cref="JyeshthaGauriVisarjan"/>, which are each defined by nakshatra-at-sunrise, not
+        /// by a fixed tithi offset (see their own doc comments).
+        /// </summary>
+        private static Time FindSunriseNakshatraDay(Time anchor, ConstellationName target)
+        {
+            for (var d = -4; d <= 10; d++)
+            {
+                var sunrise = SunriseTime(anchor.AddHours(24 * d));
+                var nakshatra = ConstellationAtLongitude(PlanetNirayanaLongitude(Moon, sunrise)).GetConstellationName();
+                if (nakshatra == target) { return sunrise; }
+            }
+
+            throw new Exception($"Could not find a {target} sunrise near {anchor} within a 14-day window");
+        }
+
+        /// <summary>
+        /// Gets the Jyeshtha Gauri Avahana (invitation) date for a Gregorian year - the sunrise,
+        /// within Bhaadrapada Shukla paksha, on which the Moon is in Anuradha nakshatra. Unlike
+        /// every other festival in this file, the 3 Jyeshtha Gauri days aren't a fixed tithi -
+        /// they're defined purely by which of 3 consecutive nakshatras (Anuradha/Jyeshtha/Moola)
+        /// holds at sunrise, landing anywhere within roughly Bhaadrapada Shukla Panchami-Navami.
+        /// Confirmed against a real published 2026 date (17 September, matching this method's
+        /// output) - see <see cref="JyeshthaGauriPoojan"/>/<see cref="JyeshthaGauriVisarjan"/> for
+        /// the other 2 days.
+        /// </summary>
+        public static Time JyeshthaGauriAvahana(int year, GeoLocation location)
+        {
+            var anchor = FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Bhaadrapada, 5, year, location);
+            return FindSunriseNakshatraDay(anchor, ConstellationName.Anuradha);
+        }
+
+        /// <summary>Gets the Jyeshtha Gauri Poojan (main worship) date - the sunrise Anuradha's day is followed by, when the Moon is in Jyeshtha nakshatra. See <see cref="JyeshthaGauriAvahana"/>.</summary>
+        public static Time JyeshthaGauriPoojan(int year, GeoLocation location)
+        {
+            var anchor = FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Bhaadrapada, 5, year, location);
+            return FindSunriseNakshatraDay(anchor, ConstellationName.Jyesta);
+        }
+
+        /// <summary>Gets the Jyeshtha Gauri Visarjan (farewell) date - the day after Poojan, when the Moon is in Moola nakshatra. See <see cref="JyeshthaGauriAvahana"/>.</summary>
+        public static Time JyeshthaGauriVisarjan(int year, GeoLocation location)
+        {
+            var anchor = FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Bhaadrapada, 5, year, location);
+            return FindSunriseNakshatraDay(anchor, ConstellationName.Moola);
+        }
+
+        /// <summary>
+        /// Finds the moment the Sun's sidereal longitude reaches a given Rashi's start, searching
+        /// from <paramref name="guess"/> - the same Newton-style search <see cref="MakarSankrantiDate"/>
+        /// uses against a fixed Makara target, generalized to any of the 12 Rashis for
+        /// <see cref="SankrantiCalendar"/>.
+        /// </summary>
+        private static Time SankrantiDateNear(ZodiacName rashi, Time guess)
+        {
+            var targetLongitude = (double)ZodiacSign.All12ZodiacNames.IndexOf(rashi) * 30.0;
+            const double sunDegreesPerDay = 360.0 / 365.2422;
+            var candidate = guess;
+
+            for (var i = 0; i < 8; i++)
+            {
+                var currentLongitude = PlanetNirayanaLongitude(Sun, candidate).TotalDegrees;
+                var diff = ((targetLongitude - currentLongitude + 540.0) % 360.0) - 180.0;
+
+                if (Math.Abs(diff) < 0.0005) { break; }
+
+                var adjustDays = diff / sunDegreesPerDay;
+                candidate = candidate.AddHours(adjustDays * 24);
+            }
+
+            return candidate;
+        }
+
+        /// <summary>
+        /// Gets all 12 Sankranti dates (the Sun's sidereal ingress into each Rashi) for a
+        /// Gregorian year, keyed by Rashi. Reuses the already-validated <see cref="MakarSankrantiDate"/>
+        /// as an anchor, seeding each other Rashi's search from that date offset by its distance
+        /// (in Rashis) from Makara at ~30.44 days/Rashi - close enough for the Newton search in
+        /// <see cref="SankrantiDateNear"/> to converge on the correct year's occurrence rather than
+        /// an adjacent one.
+        /// </summary>
+        public static Dictionary<ZodiacName, Time> SankrantiCalendar(int year, GeoLocation location)
+        {
+            var makarSankranti = MakarSankrantiDate(year, location);
+            var makarIndex = ZodiacSign.All12ZodiacNames.IndexOf(ZodiacName.Capricorn);
+            const double avgDaysPerRashi = 365.2422 / 12.0;
+
+            var result = new Dictionary<ZodiacName, Time>();
+            foreach (var rashi in ZodiacSign.All12ZodiacNames)
+            {
+                //always step FORWARD from Makar (0..11 steps) - every other Rashi's occurrence in
+                //this same Gregorian year falls after Makar Sankranti's own (mid-January) date,
+                //all the way around to Dhanu (Sagittarius) in December, never before it
+                var stepsFromMakar = ((ZodiacSign.All12ZodiacNames.IndexOf(rashi) - makarIndex) % 12 + 12) % 12;
+                var guess = makarSankranti.AddHours(24 * avgDaysPerRashi * stepsFromMakar);
+                result[rashi] = SankrantiDateNear(rashi, guess);
+            }
+
+            return result;
         }
 
         /// <summary>

@@ -288,5 +288,246 @@ namespace VedAstro.Library.Tests
                 }
             }
         }
+
+        [TestMethod()]
+        public void TithiTransition_EndTimeMatchesLunarDayBoundary()
+        {
+            var time = new Time("12:00 15/06/2024 +05:30", GeoLocation.Bangalore);
+
+            var transition = Calculate.TithiTransition(time);
+
+            Assert.AreEqual(Calculate.LunarDay(time).GetLunarDateNumber(), transition.Current.GetLunarDateNumber());
+            Assert.IsTrue(transition.EndTime.GetStdDateTimeOffset() > time.GetStdDateTimeOffset());
+            Assert.AreNotEqual(transition.Current.GetLunarDateNumber(), transition.Next.GetLunarDateNumber());
+
+            // just after EndTime must already read as Next; just before must still read as Current
+            var justAfter = transition.EndTime.AddHours(1.0 / 60);
+            var justBefore = transition.EndTime.AddHours(-1.0 / 60);
+            Assert.AreEqual(transition.Next.GetLunarDateNumber(), Calculate.LunarDay(justAfter).GetLunarDateNumber());
+            Assert.AreEqual(transition.Current.GetLunarDateNumber(), Calculate.LunarDay(justBefore).GetLunarDateNumber());
+        }
+
+        [TestMethod()]
+        public void NakshatraTransition_CurrentAndNextDiffer()
+        {
+            var time = new Time("12:00 15/06/2024 +05:30", GeoLocation.Bangalore);
+
+            var transition = Calculate.NakshatraTransition(time);
+
+            Assert.AreEqual(Calculate.MoonConstellation(time).GetConstellationName(), transition.Current.GetConstellationName());
+            Assert.AreNotEqual(transition.Current.GetConstellationName(), transition.Next.GetConstellationName());
+            Assert.IsTrue(transition.EndTime.GetStdDateTimeOffset() > time.GetStdDateTimeOffset());
+        }
+
+        [TestMethod()]
+        public void YogaTransition_CurrentAndNextDiffer()
+        {
+            var time = new Time("12:00 15/06/2024 +05:30", GeoLocation.Bangalore);
+
+            var transition = Calculate.YogaTransition(time);
+
+            Assert.AreEqual(Calculate.NithyaYoga(time).Name, transition.Current.Name);
+            Assert.AreNotEqual(transition.Current.Name, transition.Next.Name);
+            Assert.IsTrue(transition.EndTime.GetStdDateTimeOffset() > time.GetStdDateTimeOffset());
+        }
+
+        [TestMethod()]
+        public void KaranaTransition_CurrentAndNextDiffer()
+        {
+            var time = new Time("12:00 15/06/2024 +05:30", GeoLocation.Bangalore);
+
+            var transition = Calculate.KaranaTransition(time);
+
+            Assert.AreEqual(Calculate.Karana(time), transition.Current);
+            Assert.AreNotEqual(transition.Current, transition.Next);
+            Assert.IsTrue(transition.EndTime.GetStdDateTimeOffset() > time.GetStdDateTimeOffset());
+        }
+
+        [TestMethod()]
+        public void DurMuhurtaPeriods_FallWithinDayOrNightAndMatchWeekdayCount()
+        {
+            var expectedCountByWeekday = new Dictionary<DayOfWeek, int>
+            {
+                [DayOfWeek.Sunday] = 1,
+                [DayOfWeek.Monday] = 2,
+                [DayOfWeek.Tuesday] = 2,
+                [DayOfWeek.Wednesday] = 1,
+                [DayOfWeek.Thursday] = 2,
+                [DayOfWeek.Friday] = 2,
+                [DayOfWeek.Saturday] = 1,
+            };
+
+            var start = new Time("12:00 01/01/2024 +05:30", GeoLocation.Bangalore);
+            var seenWeekdays = new HashSet<DayOfWeek>();
+
+            for (var d = 0; d < 7; d++)
+            {
+                var day = start.AddHours(24 * d);
+                var vedicWeekday = Calculate.DayOfWeek(day);
+                var periods = Calculate.DurMuhurtaPeriods(day);
+
+                Assert.AreEqual(expectedCountByWeekday[vedicWeekday], periods.Count, $"Mismatch for {vedicWeekday}");
+                foreach (var period in periods)
+                {
+                    Assert.IsTrue(period.end.GetStdDateTimeOffset() > period.start.GetStdDateTimeOffset());
+                }
+                seenWeekdays.Add(vedicWeekday);
+            }
+
+            Assert.AreEqual(7, seenWeekdays.Count, "Expected all 7 weekdays to be covered by this 7-day scan");
+        }
+
+        /// <summary>
+        /// Mid-June is always well after that Gregorian year's Chaitra Shukla Pratipada (always
+        /// March/April), so this must land on Gregorian year + 57 regardless of exact New Year
+        /// search precision.
+        /// </summary>
+        [TestMethod()]
+        public void VikramSamvatYear_MidJune_IsGregorianPlus57()
+        {
+            var time = new Time("12:00 15/06/2024 +05:30", GeoLocation.Bangalore);
+
+            Assert.AreEqual(2081, Calculate.VikramSamvatYear(time));
+        }
+
+        /// <summary>Mid-January is always well before that Gregorian year's own Chaitra Shukla Pratipada, so it's still the previous Vikram Samvat year (+56).</summary>
+        [TestMethod()]
+        public void VikramSamvatYear_MidJanuary_IsGregorianPlus56()
+        {
+            var time = new Time("12:00 15/01/2024 +05:30", GeoLocation.Bangalore);
+
+            Assert.AreEqual(2080, Calculate.VikramSamvatYear(time));
+        }
+
+        /// <summary>
+        /// Between Chaitra Shukla Pratipada and Kartika Shukla Pratipada, Gujarati Samvat trails
+        /// the main Vikram Samvat by 1 (it hasn't rolled over at Diwali/Kartika yet).
+        /// </summary>
+        [TestMethod()]
+        public void GujaratiSamvatYear_MidJune_TrailsVikramSamvatByOne()
+        {
+            var time = new Time("12:00 15/06/2024 +05:30", GeoLocation.Bangalore);
+
+            Assert.AreEqual(2081, Calculate.VikramSamvatYear(time));
+            Assert.AreEqual(2080, Calculate.GujaratiSamvatYear(time));
+        }
+
+        /// <summary>After Kartika Shukla Pratipada (just after Diwali), Gujarati Samvat catches up to match Vikram Samvat for the rest of the year.</summary>
+        [TestMethod()]
+        public void GujaratiSamvatYear_LateNovember_MatchesVikramSamvat()
+        {
+            var time = new Time("12:00 20/11/2024 +05:30", GeoLocation.Bangalore);
+
+            Assert.AreEqual(Calculate.VikramSamvatYear(time), Calculate.GujaratiSamvatYear(time));
+        }
+
+        [TestMethod()]
+        public void SakaSamvatYear_IsGregorianMinus78Or79MatchingVikramSamvatBoundary()
+        {
+            var afterChaitra = new Time("12:00 15/06/2024 +05:30", GeoLocation.Bangalore);
+            var beforeChaitra = new Time("12:00 15/01/2024 +05:30", GeoLocation.Bangalore);
+
+            Assert.AreEqual(1946, Calculate.SakaSamvatYear(afterChaitra));
+            Assert.AreEqual(1945, Calculate.SakaSamvatYear(beforeChaitra));
+        }
+
+        [TestMethod()]
+        public void KaliSamvatYear_IsGregorianPlus3101Or3100MatchingVikramSamvatBoundary()
+        {
+            var afterChaitra = new Time("12:00 15/06/2024 +05:30", GeoLocation.Bangalore);
+            var beforeChaitra = new Time("12:00 15/01/2024 +05:30", GeoLocation.Bangalore);
+
+            Assert.AreEqual(5125, Calculate.KaliSamvatYear(afterChaitra));
+            Assert.AreEqual(5124, Calculate.KaliSamvatYear(beforeChaitra));
+        }
+
+        /// <summary>
+        /// Pinned against a confirmed real-world example: Vikram Samvat 2083 (mid-2026) is
+        /// "Parabhava" (South) / "Raudri" (North) - see SamvatsaraNameNorth's doc comment.
+        /// </summary>
+        [TestMethod()]
+        public void SamvatsaraName_VikramSamvat2083_IsParabhavaSouthRaudriNorth()
+        {
+            var time = new Time("12:00 15/06/2026 +05:30", GeoLocation.Bangalore);
+            Assert.AreEqual(2083, Calculate.VikramSamvatYear(time));
+
+            Assert.AreEqual("Parabhava", Calculate.SamvatsaraName(time));
+            Assert.AreEqual("Raudri", Calculate.SamvatsaraNameNorth(time));
+        }
+
+        /// <summary>Diwali's Amavasya is Amanta Aaswayuja (Krishna paksha) - its Purnimanta name shifts one month ahead, to Kaarteeka, matching how "Kartik Amavasya" is popularly named.</summary>
+        [TestMethod()]
+        public void PurnimantaMonth_Diwali_IsKaarteekaNotAaswayuja()
+        {
+            var diwali = Calculate.FestivalDate(FestivalName.Diwali, 2023, GeoLocation.Bangalore);
+
+            Assert.AreEqual(LunarMonth.Aaswayuja, Calculate.LunarMonth(diwali));
+            Assert.AreEqual(LunarMonth.Kaarteeka, Calculate.PurnimantaMonth(diwali));
+        }
+
+        /// <summary>Ramnavami (Chaitra Shukla, Shukla paksha) needs no Amanta/Purnimanta shift.</summary>
+        [TestMethod()]
+        public void PurnimantaMonth_ShuklaPaksha_MatchesAmantaMonth()
+        {
+            var ramnavami = Calculate.FestivalDate(FestivalName.Ramnavami, 2024, GeoLocation.Bangalore);
+
+            Assert.AreEqual(LunarMonth.Chaitra, Calculate.LunarMonth(ramnavami));
+            Assert.AreEqual(LunarMonth.Chaitra, Calculate.PurnimantaMonth(ramnavami));
+        }
+
+        [TestMethod()]
+        public void Ritu_RamnavamiInChaitra_IsVasanta()
+        {
+            var ramnavami = Calculate.FestivalDate(FestivalName.Ramnavami, 2024, GeoLocation.Bangalore);
+            Assert.AreEqual(RituName.Vasanta, Calculate.Ritu(ramnavami));
+        }
+
+        [TestMethod()]
+        public void Ayana_JustAfterMakarSankranti_IsUttarayana()
+        {
+            var makarSankranti = Calculate.FestivalDate(FestivalName.MakarSankranti, 2024, GeoLocation.Bangalore);
+            var justAfter = makarSankranti.AddHours(24);
+
+            Assert.AreEqual(AyanaName.Uttarayana, Calculate.Ayana(justAfter));
+        }
+
+        /// <summary>
+        /// Sidereal Karka Sankranti (Dakshinayana's start) falls in mid-July, not the tropical
+        /// summer solstice's June 21 - Lahiri ayanamsa has drifted the sidereal Rashi boundary
+        /// ~24 days later than the real solstice. Picking a date safely after that drift.
+        /// </summary>
+        [TestMethod()]
+        public void Ayana_EarlyAugust_IsDakshinayana()
+        {
+            var earlyAugust = new Time("12:00 01/08/2024 +05:30", GeoLocation.Bangalore);
+            Assert.AreEqual(AyanaName.Dakshinayana, Calculate.Ayana(earlyAugust));
+        }
+
+        [TestMethod()]
+        public void MoonZodiacTransition_CurrentAndNextDiffer()
+        {
+            var time = new Time("12:00 15/06/2024 +05:30", GeoLocation.Bangalore);
+
+            var transition = Calculate.MoonZodiacTransition(time);
+
+            Assert.AreNotEqual(transition.Current, transition.Next);
+            Assert.IsTrue(transition.EndTime.GetStdDateTimeOffset() > time.GetStdDateTimeOffset());
+        }
+
+        [TestMethod()]
+        public void MoonriseAndMoonsetTime_ReturnDistinctValidTimesNearQueriedDay()
+        {
+            var time = new Time("12:00 15/06/2024 +05:30", GeoLocation.Bangalore);
+
+            var moonrise = Calculate.MoonriseTime(time);
+            var moonset = Calculate.MoonsetTime(time);
+
+            Assert.AreNotEqual(moonrise.GetStdDateTimeOffset(), moonset.GetStdDateTimeOffset());
+
+            var dayStart = new Time("00:00 14/06/2024 +05:30", GeoLocation.Bangalore).GetStdDateTimeOffset();
+            var dayEnd = new Time("00:00 17/06/2024 +05:30", GeoLocation.Bangalore).GetStdDateTimeOffset();
+            Assert.IsTrue(moonrise.GetStdDateTimeOffset() > dayStart && moonrise.GetStdDateTimeOffset() < dayEnd);
+            Assert.IsTrue(moonset.GetStdDateTimeOffset() > dayStart && moonset.GetStdDateTimeOffset() < dayEnd);
+        }
     }
 }

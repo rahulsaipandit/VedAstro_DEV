@@ -2058,6 +2058,80 @@ namespace VedAstro.Library
         }
 
         /// <summary>
+        /// Get actual moonrise time for that day at that place - same Swiss-Ephemeris
+        /// swe_rise_trans approach as <see cref="SunriseTime"/>, just for the Moon instead of the
+        /// Sun. Kept as its own method rather than refactoring SunriseTime/SunsetTime into a
+        /// shared helper, since those two are relied on throughout the app and this avoids any
+        /// risk of regressing them.
+        /// </summary>
+        public static Time MoonriseTime(Time time)
+        {
+            return CacheManager.GetCache(new CacheKey(nameof(MoonriseTime), time, Ayanamsa), _getMoonriseTime);
+
+            Time _getMoonriseTime()
+            {
+                const int iflag = SwissEph.SEFLG_SWIEPH | SwissEph.SEFLG_SPEED | SwissEph.SEFLG_SIDEREAL;
+                const int srflag = SwissEph.SE_BIT_NO_REFRACTION | SwissEph.SE_BIT_DISC_CENTER;
+                var options = SwissEph.SE_CALC_RISE | srflag;
+                var planet = SwissEph.SE_MOON;
+
+                double[] geopos = new Double[3] { time.GetGeoLocation().Longitude(), time.GetGeoLocation().Latitude(), 0 };
+                double riseTimeRaw = 0;
+
+                var errorMsg = "";
+                const double atpress = 0.0;
+                const double attemp = 0.0;
+
+                var oriLmt = time.GetLmtDateTimeOffset();
+                var lmtAt12Am = new DateTime(oriLmt.Year, oriLmt.Month, oriLmt.Day, 0, 0, 0);
+                var timeAt12Am = new Time(lmtAt12Am, time.GetStdDateTimeOffset().Offset, time.GetGeoLocation());
+
+                var julianLmtUtcTime = GreenwichLmtInJulianDays(timeAt12Am);
+
+                using SwissEph ephemeris = new();
+                ephemeris.swe_rise_trans(julianLmtUtcTime, planet, "", iflag, options, geopos, atpress, attemp, ref riseTimeRaw, ref errorMsg);
+
+                var moonriseLmtAtGreenwich = GreenwichTimeFromJulianDays(riseTimeRaw);
+                var stdOriginal = moonriseLmtAtGreenwich.ToOffset(time.GetStdDateTimeOffset().Offset);
+                return new Time(stdOriginal, time.GetGeoLocation());
+            }
+        }
+
+        /// <summary>Get actual moonset time for that day at that place - see <see cref="MoonriseTime"/>.</summary>
+        public static Time MoonsetTime(Time time)
+        {
+            return CacheManager.GetCache(new CacheKey(nameof(MoonsetTime), time, Ayanamsa), _getMoonsetTime);
+
+            Time _getMoonsetTime()
+            {
+                const int iflag = SwissEph.SEFLG_SWIEPH | SwissEph.SEFLG_SPEED | SwissEph.SEFLG_SIDEREAL;
+                const int srflag = SwissEph.SE_BIT_NO_REFRACTION | SwissEph.SE_BIT_DISC_CENTER;
+                var options = SwissEph.SE_CALC_SET | srflag;
+                var planet = SwissEph.SE_MOON;
+
+                double[] geopos = new Double[3] { time.GetGeoLocation().Longitude(), time.GetGeoLocation().Latitude(), 0 };
+                double setTimeRaw = 0;
+
+                var errorMsg = "";
+                const double atpress = 0.0;
+                const double attemp = 0.0;
+
+                var oriLmt = time.GetLmtDateTimeOffset();
+                var lmtAt12Am = new DateTime(oriLmt.Year, oriLmt.Month, oriLmt.Day, 0, 0, 0);
+                var timeAt12Am = new Time(lmtAt12Am, time.GetStdDateTimeOffset().Offset, time.GetGeoLocation());
+
+                var julianLmtUtcTime = GreenwichLmtInJulianDays(timeAt12Am);
+
+                using SwissEph ephemeris = new();
+                ephemeris.swe_rise_trans(julianLmtUtcTime, planet, "", iflag, options, geopos, atpress, attemp, ref setTimeRaw, ref errorMsg);
+
+                var moonsetLmtAtGreenwich = GreenwichTimeFromJulianDays(setTimeRaw);
+                var stdOriginal = moonsetLmtAtGreenwich.ToOffset(time.GetStdDateTimeOffset().Offset);
+                return new Time(stdOriginal, time.GetGeoLocation());
+            }
+        }
+
+        /// <summary>
         /// Get actual noon time for that day at that place
         /// Returned in apparent time (DateTime)
         /// Note:

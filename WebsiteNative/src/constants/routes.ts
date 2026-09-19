@@ -38,6 +38,7 @@ export const PageRoute = {
   VedicBirthday: 'VedicBirthday',
   FestivalCalendar: 'FestivalCalendar',
   Muhurt: 'Muhurt',
+  DayClock: 'DayClock',
   ComparePanchangEngines: 'ComparePanchangEngines',
 
   // Match

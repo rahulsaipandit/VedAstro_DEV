@@ -394,5 +394,300 @@ namespace VedAstro.Library
 
             return periods;
         }
+
+        /// <summary>
+        /// Finds the next instant at which <paramref name="keyAt"/>'s value changes from what it
+        /// reads at <paramref name="time"/>, scanning forward hour by hour (safely finer than any
+        /// Panchang limb's minimum duration - Karana, the shortest, never runs below ~10h) and
+        /// bisecting the found hour-wide bracket to the exact boundary via <see cref="BisectBoundary"/>.
+        /// Used by the 4 *Transition methods below instead of a per-limb closed-form formula,
+        /// since it works uniformly regardless of each limb's underlying (non-constant-rate)
+        /// angular motion.
+        /// </summary>
+        private static Time FindNextTransition<TKey>(Time time, Func<Time, TKey> keyAt) where TKey : struct
+        {
+            var comparer = EqualityComparer<TKey>.Default;
+            var currentKey = keyAt(time);
+            var previous = time;
+
+            for (var hours = 1.0; hours <= 48.0; hours += 1.0)
+            {
+                var candidate = time.AddHours(hours);
+                if (!comparer.Equals(keyAt(candidate), currentKey))
+                {
+                    return BisectBoundary(previous, candidate, t => !comparer.Equals(keyAt(t), currentKey), true);
+                }
+                previous = candidate;
+            }
+
+            throw new Exception($"Could not find a Panchang-limb transition for {time} within 48 hours");
+        }
+
+        /// <summary>
+        /// Gets the Tithi in effect at <paramref name="time"/>, the instant it ends, and the Tithi
+        /// that follows - the "current value + when it changes" row style used throughout the
+        /// reference app's detailed Panchang table (as opposed to <see cref="DailyPanchang"/>'s
+        /// single sunrise-anchored snapshot).
+        /// </summary>
+        public static TithiTransition TithiTransition(Time time)
+        {
+            var current = LunarDay(time);
+            var endTime = FindNextTransition(time, t => LunarDay(t).GetLunarDateNumber());
+            var next = LunarDay(endTime.AddHours(1.0 / 60));
+            return new TithiTransition(current, endTime, next);
+        }
+
+        /// <summary>Gets the Nakshatra in effect at <paramref name="time"/>, the instant it ends, and the Nakshatra that follows.</summary>
+        public static NakshatraTransition NakshatraTransition(Time time)
+        {
+            Constellation NakshatraAt(Time t) => ConstellationAtLongitude(PlanetNirayanaLongitude(Moon, t));
+
+            var current = NakshatraAt(time);
+            var endTime = FindNextTransition(time, t => NakshatraAt(t).GetConstellationName());
+            var next = NakshatraAt(endTime.AddHours(1.0 / 60));
+            return new NakshatraTransition(current, endTime, next);
+        }
+
+        /// <summary>Gets the Nithya Yoga in effect at <paramref name="time"/>, the instant it ends, and the Yoga that follows.</summary>
+        public static YogaTransition YogaTransition(Time time)
+        {
+            var current = NithyaYoga(time);
+            var endTime = FindNextTransition(time, t => NithyaYoga(t).Name);
+            var next = NithyaYoga(endTime.AddHours(1.0 / 60));
+            return new YogaTransition(current, endTime, next);
+        }
+
+        /// <summary>Gets the Karana in effect at <paramref name="time"/>, the instant it ends, and the Karana that follows.</summary>
+        public static KaranaTransition KaranaTransition(Time time)
+        {
+            var current = Karana(time);
+            var endTime = FindNextTransition(time, Karana);
+            var next = Karana(endTime.AddHours(1.0 / 60));
+            return new KaranaTransition(current, endTime, next);
+        }
+
+        /// <summary>
+        /// Which of the day's (or, for Tuesday's second occurrence, the night's) 15 equal
+        /// sunrise-to-sunset (or sunset-to-sunrise) divisions are Dur Muhurta - a fixed,
+        /// classically inauspicious 1-2-per-day pair of ~48-minute windows, distinct from
+        /// Rahu/Gulika/Yamaganda Kaal's single 1/8-daytime window. Weekday table cross-checked
+        /// against 2 independently phrased sources (oursubhakaryam.com, bhaktibharat.org) stating
+        /// the same "H hrs MM mins after sunrise/sunset" figures for every weekday; all 8 stated
+        /// offsets resolve to exact multiples of 1/15 of a 12-hour reference day (48 minutes),
+        /// which is what gives confidence this reduces cleanly to muhurta-index boundaries rather
+        /// than being an imprecise or garbled secondary source. Not independently verified beyond
+        /// that internal-consistency check - treat as best-effort pending a from-first-principles
+        /// source, same caveat this codebase already applies to its other tithi/weekday tables.
+        /// </summary>
+        private static readonly Dictionary<DayOfWeek, (int StartIndex, int SpanCount, bool IsDayPeriod)[]> DurMuhurtaSlotsByWeekday = new()
+        {
+            [global::VedAstro.Library.DayOfWeek.Sunday] = new[] { (13, 1, true) },
+            [global::VedAstro.Library.DayOfWeek.Monday] = new[] { (8, 1, true), (11, 1, true) },
+            [global::VedAstro.Library.DayOfWeek.Tuesday] = new[] { (3, 1, true), (7, 1, false) },
+            [global::VedAstro.Library.DayOfWeek.Wednesday] = new[] { (7, 1, true) },
+            [global::VedAstro.Library.DayOfWeek.Thursday] = new[] { (5, 1, true), (11, 1, true) },
+            [global::VedAstro.Library.DayOfWeek.Friday] = new[] { (3, 1, true), (11, 1, true) },
+            [global::VedAstro.Library.DayOfWeek.Saturday] = new[] { (0, 2, true) },
+        };
+
+        /// <summary>Gets the Dur Muhurta window(s) for the calendar day containing <paramref name="date"/> - see <see cref="DurMuhurtaSlotsByWeekday"/>.</summary>
+        public static List<TimeRange> DurMuhurtaPeriods(Time date)
+        {
+            var sunrise = SunriseTime(date);
+            var sunset = SunsetTime(date);
+            var nextSunrise = SunriseTime(sunset.AddHours(18));
+            var weekday = DayOfWeek(sunrise);
+
+            var dayMuhurtaHours = (sunset.GetStdDateTimeOffset() - sunrise.GetStdDateTimeOffset()).TotalHours / 15.0;
+            var nightMuhurtaHours = (nextSunrise.GetStdDateTimeOffset() - sunset.GetStdDateTimeOffset()).TotalHours / 15.0;
+
+            var periods = new List<TimeRange>();
+            foreach (var (startIndex, spanCount, isDayPeriod) in DurMuhurtaSlotsByWeekday[weekday])
+            {
+                var anchor = isDayPeriod ? sunrise : sunset;
+                var muhurtaHours = isDayPeriod ? dayMuhurtaHours : nightMuhurtaHours;
+                periods.Add(new TimeRange(anchor.AddHours(muhurtaHours * startIndex), anchor.AddHours(muhurtaHours * (startIndex + spanCount))));
+            }
+
+            return periods;
+        }
+
+        /// <summary>
+        /// Gets the Vikram Samvat year for the calendar day containing <paramref name="time"/> -
+        /// this era's New Year is Chaitra Shukla Pratipada (tithi 1), found the same way
+        /// <see cref="FestivalDate"/> finds any other named-month tithi. Standard conversion:
+        /// Gregorian year + 57 from that New Year onward, + 56 before it (since Vikram Samvat
+        /// began 57 years ahead of the Common Era and its New Year falls partway through the
+        /// Gregorian year, typically March/April).
+        /// </summary>
+        public static int VikramSamvatYear(Time time)
+        {
+            var gregorianYear = time.GetStdDateTimeOffset().Year;
+            var newYear = FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Chaitra, 1, gregorianYear, time.GetGeoLocation());
+
+            return time.GetStdDateTimeOffset() >= newYear.GetStdDateTimeOffset() ? gregorianYear + 57 : gregorianYear + 56;
+        }
+
+        /// <summary>
+        /// Gets the Gujarati Samvat year - numerically the same series as Vikram Samvat, but
+        /// rolling over at Kartika Shukla Pratipada (the day after Diwali) instead of Chaitra
+        /// Shukla Pratipada, so between those two dates each year it trails the main Vikram Samvat
+        /// number by 1 (e.g. Sept 2026: Vikram Samvat 2083, Gujarati Samvat still 2082 until this
+        /// year's Kartika Shukla Pratipada).
+        /// </summary>
+        public static int GujaratiSamvatYear(Time time)
+        {
+            var gregorianYear = time.GetStdDateTimeOffset().Year;
+            var newYear = FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Kaarteeka, 1, gregorianYear, time.GetGeoLocation());
+
+            return time.GetStdDateTimeOffset() >= newYear.GetStdDateTimeOffset() ? gregorianYear + 57 : gregorianYear + 56;
+        }
+
+        /// <summary>
+        /// Gets the Saka Samvat year - same New Year (Chaitra Shukla Pratipada) as Vikram Samvat,
+        /// but a 78-year-younger epoch: Gregorian year - 78 from that New Year onward, - 79 before it.
+        /// </summary>
+        public static int SakaSamvatYear(Time time)
+        {
+            var gregorianYear = time.GetStdDateTimeOffset().Year;
+            var newYear = FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Chaitra, 1, gregorianYear, time.GetGeoLocation());
+
+            return time.GetStdDateTimeOffset() >= newYear.GetStdDateTimeOffset() ? gregorianYear - 78 : gregorianYear - 79;
+        }
+
+        /// <summary>
+        /// Gets the Kali Samvat (Kali Yuga) year - same New Year as Vikram Samvat, epoch 3102 BCE:
+        /// Gregorian year + 3101 from that New Year onward, + 3100 before it (no year zero between
+        /// 3102 BCE and 1 CE).
+        /// </summary>
+        public static int KaliSamvatYear(Time time)
+        {
+            var gregorianYear = time.GetStdDateTimeOffset().Year;
+            var newYear = FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Chaitra, 1, gregorianYear, time.GetGeoLocation());
+
+            return time.GetStdDateTimeOffset() >= newYear.GetStdDateTimeOffset() ? gregorianYear + 3101 : gregorianYear + 3100;
+        }
+
+        private static readonly string[] SamvatsaraNames =
+        {
+            "Prabhava", "Vibhava", "Sukla", "Pramoduta", "Prajapati", "Angirasa", "Srimukha", "Bhava", "Yuva", "Dhatri",
+            "Iswara", "Bahudhanya", "Pramathi", "Vikrama", "Vrishaprajapati", "Chitrabhanu", "Svabhanu", "Tarana", "Parthiva", "Vyaya",
+            "Sarvajit", "Sarvadhari", "Virodhi", "Vikriti", "Khara", "Nandana", "Vijaya", "Jaya", "Manmatha", "Durmukhi",
+            "Hevilambi", "Vilambi", "Vikari", "Sarvari", "Plava", "Subhakrit", "Sobhakrit", "Krodhi", "Vishvavasu", "Parabhava",
+            "Plavanga", "Kilaka", "Saumya", "Sadharana", "Virodhakrita", "Paridhavi", "Pramadi", "Ananda", "Rakshasa", "Nala",
+            "Pingala", "Kalayukta", "Siddharthi", "Raudri", "Durmati", "Dundubhi", "Rudhirodgari", "Raktakshi", "Krodhana", "Akshaya",
+        };
+
+        /// <summary>
+        /// Gets the 60-year-cycle Samvatsara name for the Vikram Samvat year containing
+        /// <paramref name="time"/>. Cross-checked against a published Vikram-Samvat-to-Samvatsara
+        /// table (Wikipedia's "Samvatsara" article): VS 2080-2085 map there to indices 37-42
+        /// (Sobhakrit..Kilaka, 1-based), which the formula below reproduces exactly - 0-based
+        /// index = ((VikramSamvat - 2044) mod 60) into <see cref="SamvatsaraNames"/> (Prabhava
+        /// first). This is the mechanical/South Indian 60-year civil count, not the North Indian
+        /// variant that periodically skips a name to resync with Jupiter's real position - see
+        /// <see cref="SamvatsaraNameNorth"/>.
+        /// </summary>
+        public static string SamvatsaraName(Time time)
+        {
+            var vikramSamvat = VikramSamvatYear(time);
+            var index = (((vikramSamvat - 2044) % 60) + 60) % 60;
+            return SamvatsaraNames[index];
+        }
+
+        /// <summary>
+        /// Gets the North Indian Samvatsara name, which runs a fixed 14 names ahead of the South
+        /// Indian count (<see cref="SamvatsaraName"/>) due to accumulated historical Jupiter-resync
+        /// skips. This fixed +14 offset is calibrated against a single confirmed real-world
+        /// example (2026's VS 2083 -&gt; South "Parabhava" [index 40], North "Raudri" [index 54],
+        /// a difference of exactly 14) rather than derived from tracking the actual historical
+        /// skip years one by one, so treat it as best-effort pending independent verification
+        /// against a dedicated North Indian Samvatsara table.
+        /// </summary>
+        public static string SamvatsaraNameNorth(Time time)
+        {
+            var southIndex = (((VikramSamvatYear(time) - 2044) % 60) + 60) % 60;
+            return SamvatsaraNames[(southIndex + 14) % 60];
+        }
+
+        /// <summary>
+        /// Gets the Purnimanta (full-moon-to-full-moon) name of the lunar month containing
+        /// <paramref name="time"/> - this codebase's own <see cref="LunarMonth"/> calculator only
+        /// implements Amanta (new-moon-to-new-moon) reckoning (see its doc comment), so this
+        /// derives Purnimanta from it using the same shift <see cref="FestivalDate"/>'s doc
+        /// comment already documents: the two conventions agree on the Shukla-paksha half of a
+        /// month, but a Krishna-paksha tithi's Purnimanta month name is one month ahead of its
+        /// Amanta name.
+        /// </summary>
+        public static LunarMonth PurnimantaMonth(Time time)
+        {
+            var amantaMonth = LunarMonth(time);
+            var isKrishnaPaksha = LunarDay(time).GetLunarDateNumber() > 15;
+            if (!isKrishnaPaksha) { return amantaMonth; }
+
+            var monthNumber = (int)amantaMonth;
+            var isAdhika = monthNumber > 12;
+            var baseNumber = isAdhika ? monthNumber - 12 : monthNumber;
+            var nextBaseNumber = baseNumber == 12 ? 1 : baseNumber + 1;
+
+            return (LunarMonth)(isAdhika ? nextBaseNumber + 12 : nextBaseNumber);
+        }
+
+        /// <summary>
+        /// Which of the 6 classical Ritu (season) a lunar month belongs to - 2 months per Ritu,
+        /// starting Chaitra+Vaisaakha = Vasanta. Cross-checked against 3 independent sources
+        /// (learnreligions.com, Wikipedia's per-season articles, bhaktibharat.com), all agreeing
+        /// on this exact month pairing. Keyed by the Amanta month (Adhika months fall back to
+        /// their base Nija month, same as <see cref="VikramSamvatYear"/>'s sibling calculators) -
+        /// note this may read one Ritu earlier/later than an app that instead keys Ritu off the
+        /// Sun's real sidereal Sankranti dates, since sidereal Rashi boundaries drift relative to
+        /// the lunar month names other than via leap-month correction.
+        /// </summary>
+        private static readonly Dictionary<LunarMonth, RituName> RituByAmantaMonth = new()
+        {
+            [global::VedAstro.Library.LunarMonth.Chaitra] = RituName.Vasanta,
+            [global::VedAstro.Library.LunarMonth.Vaisaakha] = RituName.Vasanta,
+            [global::VedAstro.Library.LunarMonth.Jyeshtha] = RituName.Grishma,
+            [global::VedAstro.Library.LunarMonth.Aashaadha] = RituName.Grishma,
+            [global::VedAstro.Library.LunarMonth.Sraavana] = RituName.Varsha,
+            [global::VedAstro.Library.LunarMonth.Bhaadrapada] = RituName.Varsha,
+            [global::VedAstro.Library.LunarMonth.Aaswayuja] = RituName.Sharad,
+            [global::VedAstro.Library.LunarMonth.Kaarteeka] = RituName.Sharad,
+            [global::VedAstro.Library.LunarMonth.Maargasira] = RituName.Hemanta,
+            [global::VedAstro.Library.LunarMonth.Pushya] = RituName.Hemanta,
+            [global::VedAstro.Library.LunarMonth.Maagha] = RituName.Shishira,
+            [global::VedAstro.Library.LunarMonth.Phaalguna] = RituName.Shishira,
+        };
+
+        /// <summary>Gets the Ritu (season) for the lunar month containing <paramref name="time"/> - see <see cref="RituByAmantaMonth"/>.</summary>
+        public static RituName Ritu(Time time)
+        {
+            var month = LunarMonth(time);
+            var nijaMonth = (int)month > 12 ? (LunarMonth)((int)month - 12) : month;
+            return RituByAmantaMonth[nijaMonth];
+        }
+
+        /// <summary>
+        /// Gets the Sun's Ayana (northward/southward half-year journey) at <paramref name="time"/>
+        /// - a purely solar-longitude boundary, unambiguous regardless of lunar/Amanta/Purnimanta
+        /// convention: Uttarayana runs Makara Sankranti (270°) to Karka Sankranti (90°), Dakshinayana
+        /// the other half.
+        /// </summary>
+        public static AyanaName Ayana(Time time)
+        {
+            var sunLongitude = PlanetNirayanaLongitude(Sun, time).TotalDegrees;
+            return sunLongitude is >= 90.0 and < 270.0 ? AyanaName.Dakshinayana : AyanaName.Uttarayana;
+        }
+
+        /// <summary>Gets the Moon's zodiac sign in effect at <paramref name="time"/>, the instant it changes, and the sign that follows.</summary>
+        public static ZodiacTransition MoonZodiacTransition(Time time)
+        {
+            ZodiacName SignAt(Time t) => PlanetZodiacSign(Moon, t).GetSignName();
+
+            var current = SignAt(time);
+            var endTime = FindNextTransition(time, SignAt);
+            var next = SignAt(endTime.AddHours(1.0 / 60));
+            return new ZodiacTransition(current, endTime, next);
+        }
     }
 }

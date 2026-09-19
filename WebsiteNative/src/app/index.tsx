@@ -111,6 +111,13 @@ const QUICK_LINKS: QuickLink[] = [
     title: 'Muhurt',
     description: 'Choghadiya, Hora, Lagna & Kaal Vela for any date & place',
   },
+  {
+    route: PageRoute.DayClock,
+    icon: 'clock',
+    iconColor: '#F5C518',
+    title: 'Day Clock',
+    description: 'Every Panchang limb and when it changes, on a radial clock',
+  },
 ];
 
 export default function HomeScreen() {

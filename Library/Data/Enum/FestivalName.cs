@@ -33,5 +33,14 @@ namespace VedAstro.Library
         /// same Gregorian date every year.
         /// </summary>
         MakarSankranti,
+
+        /// <summary>Bhaadrapada Shukla Tritiya</summary>
+        HartalikaTeej,
+
+        /// <summary>Bhaadrapada Shukla Chaturthi</summary>
+        GaneshChaturthi,
+
+        /// <summary>Bhaadrapada Shukla Chaturdashi</summary>
+        AnantChaturdashi,
     }
 }

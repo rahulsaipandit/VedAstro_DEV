@@ -134,5 +134,98 @@ namespace VedAstro.Library.Tests
             var mokshada = occurrences.Single(o => Calculate.LunarMonth(o.Date) == LunarMonth.Maargasira && Calculate.LunarDay(o.Date).GetLunarDateNumber() == 11);
             Assert.AreEqual("Mokshada", mokshada.Name);
         }
+
+        [TestMethod()]
+        public void GaneshChaturthiAndAnantChaturdashi_2026_MatchKnownDates()
+        {
+            var ganeshChaturthi = Calculate.FestivalDate(FestivalName.GaneshChaturthi, 2026, GeoLocation.Bangalore);
+            var anantChaturdashi = Calculate.FestivalDate(FestivalName.AnantChaturdashi, 2026, GeoLocation.Bangalore);
+
+            Assert.AreEqual(LunarMonth.Bhaadrapada, Calculate.LunarMonth(ganeshChaturthi));
+            Assert.AreEqual(4, Calculate.LunarDay(ganeshChaturthi).GetLunarDateNumber());
+            Assert.AreEqual(14, Calculate.LunarDay(anantChaturdashi).GetLunarDateNumber());
+
+            var ganeshDayDiff = Math.Abs((ganeshChaturthi.GetStdDateTimeOffset() - new DateTimeOffset(2026, 9, 14, 0, 0, 0, TimeSpan.FromHours(5.5))).TotalDays);
+            Assert.IsTrue(ganeshDayDiff < 2, $"Expected close to 14/09/2026, was {ganeshChaturthi.GetStdDateTimeOffset()}");
+        }
+
+        [TestMethod()]
+        public void PurnimaAmavasyaSankashtiChaturthiVratCalendars_2024_ReturnAboutTwelveEachAllInRequestedYear()
+        {
+            var purnima = Calculate.PurnimaVratCalendar(2024, GeoLocation.Bangalore);
+            var amavasya = Calculate.AmavasyaVratCalendar(2024, GeoLocation.Bangalore);
+            var sankashti = Calculate.SankashtiChaturthiCalendar(2024, GeoLocation.Bangalore);
+
+            foreach (var dates in new[] { purnima, amavasya, sankashti })
+            {
+                Assert.IsTrue(dates.Count is >= 12 and <= 13, $"Expected ~12 occurrences, got {dates.Count}");
+                foreach (var date in dates) { Assert.AreEqual(2024, date.GetStdDateTimeOffset().Year); }
+            }
+
+            foreach (var date in purnima) { Assert.AreEqual(15, Calculate.LunarDay(date).GetLunarDateNumber()); }
+            foreach (var date in amavasya) { Assert.AreEqual(30, Calculate.LunarDay(date).GetLunarDateNumber()); }
+            foreach (var date in sankashti) { Assert.AreEqual(19, Calculate.LunarDay(date).GetLunarDateNumber()); }
+        }
+
+        [TestMethod()]
+        public void PradoshVratCalendar_2024_ReturnsAboutTwentyFourAllTrayodashi()
+        {
+            var dates = Calculate.PradoshVratCalendar(2024, GeoLocation.Bangalore);
+
+            Assert.IsTrue(dates.Count is >= 24 and <= 26, $"Expected ~24-26 occurrences, got {dates.Count}");
+            foreach (var date in dates)
+            {
+                Assert.AreEqual(2024, date.GetStdDateTimeOffset().Year);
+                var lunarDateNumber = Calculate.LunarDay(date).GetLunarDateNumber();
+                Assert.IsTrue(lunarDateNumber == 13 || lunarDateNumber == 28, $"Expected tithi 13 or 28, got {lunarDateNumber}");
+            }
+        }
+
+        [TestMethod()]
+        public void PitruPakshaPeriod_2024_SpansBhadrapadaPurnimaToAmavasya()
+        {
+            var period = Calculate.PitruPakshaPeriod(2024, GeoLocation.Bangalore);
+
+            Assert.IsTrue(period.start.GetStdDateTimeOffset() < period.end.GetStdDateTimeOffset());
+            Assert.AreEqual(15, Calculate.LunarDay(period.start).GetLunarDateNumber());
+            Assert.AreEqual(30, Calculate.LunarDay(period.end).GetLunarDateNumber());
+            Assert.AreEqual(LunarMonth.Bhaadrapada, Calculate.LunarMonth(period.start));
+            Assert.AreEqual(LunarMonth.Bhaadrapada, Calculate.LunarMonth(period.end));
+
+            //Pitru Paksha is classically ~15 days
+            Assert.IsTrue(period.DaysBetween is > 13 and < 17, $"Expected ~15 days, was {period.DaysBetween} days");
+        }
+
+        /// <summary>Pinned against a real published 2026 date: Avahana 17 Sep, Poojan 18 Sep, Visarjan 19 Sep - 3 consecutive days.</summary>
+        [TestMethod()]
+        public void JyeshthaGauriDates_2026_AreThreeConsecutiveDaysInCorrectNakshatraOrder()
+        {
+            var avahana = Calculate.JyeshthaGauriAvahana(2026, GeoLocation.Bangalore);
+            var poojan = Calculate.JyeshthaGauriPoojan(2026, GeoLocation.Bangalore);
+            var visarjan = Calculate.JyeshthaGauriVisarjan(2026, GeoLocation.Bangalore);
+
+            Assert.AreEqual(ConstellationName.Anuradha, Calculate.MoonConstellation(avahana).GetConstellationName());
+            Assert.AreEqual(ConstellationName.Jyesta, Calculate.MoonConstellation(poojan).GetConstellationName());
+            Assert.AreEqual(ConstellationName.Moola, Calculate.MoonConstellation(visarjan).GetConstellationName());
+
+            Assert.AreEqual(17, avahana.GetStdDateTimeOffset().Day);
+            Assert.AreEqual(9, avahana.GetStdDateTimeOffset().Month);
+            Assert.AreEqual(18, poojan.GetStdDateTimeOffset().Day);
+            Assert.AreEqual(19, visarjan.GetStdDateTimeOffset().Day);
+        }
+
+        [TestMethod()]
+        public void SankrantiCalendar_2024_ReturnsAllTwelveRashisIncludingKnownMakarSankranti()
+        {
+            var calendar = Calculate.SankrantiCalendar(2024, GeoLocation.Bangalore);
+
+            Assert.AreEqual(12, calendar.Count);
+            foreach (var entry in calendar.Values) { Assert.AreEqual(2024, entry.GetStdDateTimeOffset().Year); }
+
+            var makarFromFestivalDate = Calculate.FestivalDate(FestivalName.MakarSankranti, 2024, GeoLocation.Bangalore);
+            var makarFromSankrantiCalendar = calendar[ZodiacName.Capricorn];
+            var diffMinutes = Math.Abs((makarFromFestivalDate.GetStdDateTimeOffset() - makarFromSankrantiCalendar.GetStdDateTimeOffset()).TotalMinutes);
+            Assert.IsTrue(diffMinutes < 5, $"Expected SankrantiCalendar's Capricorn entry to match FestivalDate's MakarSankranti, diff was {diffMinutes} min");
+        }
     }
 }
