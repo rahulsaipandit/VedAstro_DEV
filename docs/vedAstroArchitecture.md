@@ -1161,6 +1161,23 @@ website locally](../CLAUDE.md) for why Blazor is being migrated away from). Both
   defaulting to `"Raman"`, wired into the `handleCalculate` options passed down to
   `BirthTimeFinderViewer`.
 
+**Comparison with [btr-literature](https://github.com/ashoksainiengineer/btr-literature)**: the
+`BirthTimeFinderAPI.cs`/`Console/Program.cs` flow documented above is purely mechanical — it
+generates candidate charts for a swept range of possible birth times and leaves the actual
+rectification judgment to a human comparing those charts against known life events; there is no
+rule engine or scoring logic in that specific flow. btr-literature, by contrast, is not a
+calculation/chart-generation tool at all — it's a knowledge base of BTR rules, methodologies (KP
+Cuspal Sub-Lord, Ruling Planets, Pranapada Lagna, Pancha Tatwa), and classical text references
+(BPHS, Jataka Parijata).
+
+**A second, questionnaire-driven scoring layer now exists on top of the same candidate sweep**,
+informed by btr-literature's rule categories where they apply and by classical planetary karakas
+otherwise — see `docs/BirthTimeFinder.md`'s "Implemented design" section for the full
+`BtrQuestionBank`/`BtrScoringEngine`/`BirthTimeScoringAPI` walkthrough. It's a separate endpoint
+(`POST /api/FindBirthTime/Score/PersonId/{personId}`) and frontend screen
+(`WebsiteNative/src/app/BirthTimeQuestionnaire.tsx`) alongside the SVG-stack flow above, not a
+replacement for it.
+
 ### Match / Compatibility Reports (MatchChecker → WebsiteNative)
 
 The Vedic compatibility ("Kuta"/Ashtakoot) feature was audited end-to-end this session and

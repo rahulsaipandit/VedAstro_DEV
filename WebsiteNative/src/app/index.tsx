@@ -104,6 +104,13 @@ const QUICK_LINKS: QuickLink[] = [
     title: 'Festival Calendar',
     description: 'Diwali, Holi & more computed fresh for any year',
   },
+  {
+    route: PageRoute.Muhurt,
+    icon: 'clock',
+    iconColor: '#F5C518',
+    title: 'Muhurt',
+    description: 'Choghadiya, Hora, Lagna & Kaal Vela for any date & place',
+  },
 ];
 
 export default function HomeScreen() {

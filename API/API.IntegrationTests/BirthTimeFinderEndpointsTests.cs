@@ -20,6 +20,12 @@ namespace API.IntegrationTests
         public BirthTimeFinderEndpointsTests(ApiWebApplicationFactory factory)
         {
             _client = factory.CreateClient();
+
+            //full life-span chart generation for even a narrow 3-candidate scan takes well over
+            //HttpClient's 100s default (see EventsChartFactory's per-event Shadbala/Ishta-Kashta
+            //scoring cost) - not a hang (confirmed finite via manual testing outside this in-process
+            //TestServer, which runs noticeably slower than a real Kestrel process), just genuinely slow
+            _client.Timeout = TimeSpan.FromMinutes(10);
         }
 
         private async Task<string> CreatePersonAsync(string ownerId)

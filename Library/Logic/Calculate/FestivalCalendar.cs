@@ -126,6 +126,49 @@ namespace VedAstro.Library
         }
 
         /// <summary>
+        /// Gets the Chaturmas period (the ~4-month span during which Vishnu is classically said to
+        /// sleep) for a Gregorian year: Ashadha Shukla Ekadashi (tithi 11) to Kartika Shukla
+        /// Ekadashi (tithi 11), both found the same way <see cref="FestivalDate"/> finds any other
+        /// named-month tithi.
+        /// </summary>
+        public static TimeRange ChaturmasPeriod(int year, GeoLocation location)
+        {
+            var start = FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Aashaadha, 11, year, location);
+            var end = FindTithiInNijaMonth(global::VedAstro.Library.LunarMonth.Kaarteeka, 11, year, location);
+
+            return new TimeRange(start, end);
+        }
+
+        /// <summary>
+        /// Gets every Ekadashi (tithi 11 of each Shukla paksha, tithi 26 of each Krishna paksha) in
+        /// a Gregorian year - unlike <see cref="FestivalCalendar"/>'s once-per-year festivals,
+        /// Ekadashi recurs roughly every 15 days, so this walks every synodic month in and around
+        /// the year (same ~15-month scan window as <see cref="FindTithiInNijaMonth"/>, but without
+        /// that method's named-month filter, since Ekadashi isn't tied to one particular month
+        /// name) rather than dispatching through <see cref="FestivalDate"/>. Returns ~24 dates in a
+        /// normal year, more in a year containing an Adhika month.
+        /// </summary>
+        public static List<Time> EkadashiCalendar(int year, GeoLocation location)
+        {
+            var dates = new List<Time>();
+            var monthStart = PreviousNewMoon(new Time($"00:00 01/12/{year - 1} +00:00", location));
+
+            for (var i = 0; i < 15; i++)
+            {
+                var shuklaEkadashi = FindTithiInstant(monthStart, 11);
+                if (shuklaEkadashi.GetStdDateTimeOffset().Year == year) { dates.Add(shuklaEkadashi); }
+
+                var krishnaEkadashi = FindTithiInstant(monthStart, 26);
+                if (krishnaEkadashi.GetStdDateTimeOffset().Year == year) { dates.Add(krishnaEkadashi); }
+
+                monthStart = NextNewMoon(monthStart.AddHours(24));
+            }
+
+            dates.Sort((a, b) => a.GetStdDateTimeOffset().CompareTo(b.GetStdDateTimeOffset()));
+            return dates;
+        }
+
+        /// <summary>
         /// Finds the moment the Sun's sidereal longitude reaches Makara (Capricorn)'s start (270°)
         /// in a given Gregorian year - a purely solar event (Makar Sankranti), searched the same
         /// Newton-style way as <see cref="Calculate.TajikaDateForYear"/> but against a fixed target

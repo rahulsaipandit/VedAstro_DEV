@@ -1609,6 +1609,32 @@ namespace VedAstro.Library
                 //start as empty event
                 var prevEventList = new Dictionary<int, EventName>();
 
+                //CalculateNatureScore only depends on the event itself & the person's fixed birth
+                //time (see Algorithm.PlanetStrengthDegree/IshtaKashtaPhalaDegree - neither reads
+                //the current time slice), so it's identical for every slice the same Event instance
+                //occurs in. eventList's Event objects are reused across all slices below, so scoring
+                //each one only once here (instead of once per slice it appears in) avoids redundant,
+                //expensive Shadbala/Ishta-Kashta recomputation - was previously O(slices × events),
+                //now at worst O(events).
+                var scoredEvents = new HashSet<Event>();
+
+                //Second, more aggressive cache: General/IshtaKashtaPhalaDegree/PlanetStrengthDegree
+                //(the only algorithms verified to not read anything else off Event - see their
+                //bodies in Algorithms.cs) produce the same score for any two DIFFERENT Event
+                //instances that share the same Nature + related-planet set + PD-dasa-ness, since
+                //person.BirthTime is fixed for this whole chart. Many distinct dasha-level events
+                //(e.g. Sun Mahadasha vs a Sun-Moon Antardasha) reference the same planet(s), so this
+                //collapses events onto shared cached scores instead of just deduping identical ones.
+                //Only used when every selected algorithm is in the verified-safe set below - falls
+                //back to the per-Event cache above (still correct, just less aggressive) otherwise,
+                //so callers using other/unverified algorithms are unaffected.
+                var safeForDerivedKeyCache = new HashSet<string>
+                {
+                    nameof(Algorithm.General), nameof(Algorithm.IshtaKashtaPhalaDegree), nameof(Algorithm.PlanetStrengthDegree)
+                };
+                var canUseDerivedKeyCache = summaryOptions.SelectedAlgorithm.All(a => safeForDerivedKeyCache.Contains(a.Method.Name));
+                var derivedKeyScoreCache = new Dictionary<string, double>();
+
                 //convert each time slice to a stack of event rects
                 foreach (var slice in timeSlices)
                 {
@@ -1620,11 +1646,21 @@ namespace VedAstro.Library
                     {
                         //every time a rect is added, we keep track of it in a list to generate the summary row at last
                         //based on event nature minus or plus 1
-                        double natureScore = 0;
-
-                        //calculate accurate nature score
-                        natureScore = CalculateNatureScore(foundEvent, inputPerson, summaryOptions.SelectedAlgorithm);
-                        foundEvent.NatureScore = natureScore;
+                        if (canUseDerivedKeyCache)
+                        {
+                            var isDasaEvent = foundEvent.Name.ToString().Contains("PD");
+                            var derivedKey = $"{foundEvent.Nature}|{isDasaEvent}|{string.Join(",", foundEvent.GetRelatedPlanet())}";
+                            if (!derivedKeyScoreCache.TryGetValue(derivedKey, out var cachedScore))
+                            {
+                                cachedScore = CalculateNatureScore(foundEvent, inputPerson, summaryOptions.SelectedAlgorithm);
+                                derivedKeyScoreCache[derivedKey] = cachedScore;
+                            }
+                            foundEvent.NatureScore = cachedScore;
+                        }
+                        else if (scoredEvents.Add(foundEvent))
+                        {
+                            foundEvent.NatureScore = CalculateNatureScore(foundEvent, inputPerson, summaryOptions.SelectedAlgorithm);
+                        }
                     }
 
                     //get max & min to set color boundaries, helps to render dynamic color range based on changing algo count

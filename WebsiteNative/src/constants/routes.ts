@@ -37,6 +37,7 @@ export const PageRoute = {
   APIBuilder: 'APIBuilder',
   VedicBirthday: 'VedicBirthday',
   FestivalCalendar: 'FestivalCalendar',
+  Muhurt: 'Muhurt',
   ComparePanchangEngines: 'ComparePanchangEngines',
 
   // Match

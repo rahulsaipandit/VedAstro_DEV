@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using VedAstro.Library;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -76,6 +77,43 @@ namespace VedAstro.Library.Tests
             {
                 Assert.AreEqual(2024, entry.Value.GetStdDateTimeOffset().Year, $"{entry.Key} did not land in 2024");
             }
+        }
+
+        [TestMethod()]
+        public void ChaturmasPeriod_2024_SpansAshadhaEkadashiToKartikaEkadashi()
+        {
+            var period = Calculate.ChaturmasPeriod(2024, GeoLocation.Bangalore);
+
+            Assert.IsTrue(period.start.GetStdDateTimeOffset() < period.end.GetStdDateTimeOffset());
+            Assert.AreEqual(11, Calculate.LunarDay(period.start).GetLunarDateNumber());
+            Assert.AreEqual(LunarMonth.Aashaadha, Calculate.LunarMonth(period.start));
+            Assert.AreEqual(11, Calculate.LunarDay(period.end).GetLunarDateNumber());
+            Assert.AreEqual(LunarMonth.Kaarteeka, Calculate.LunarMonth(period.end));
+
+            //Chaturmas is classically ~4 lunar months (~118-121 days)
+            Assert.IsTrue(period.DaysBetween is > 110 and < 130, $"Expected ~4 months, was {period.DaysBetween} days");
+        }
+
+        /// <summary>
+        /// A normal (non-Adhika) year has 24 Ekadashis - 2 per synodic month, 12 synodic months.
+        /// An Adhika-month year can have more, so this just checks the common case + invariants.
+        /// </summary>
+        [TestMethod()]
+        public void EkadashiCalendar_2024_ReturnsExpectedCountAllInRequestedYearAllTithiEleven()
+        {
+            var dates = Calculate.EkadashiCalendar(2024, GeoLocation.Bangalore);
+
+            Assert.IsTrue(dates.Count is >= 24 and <= 26, $"Expected ~24-26 Ekadashis, got {dates.Count}");
+
+            foreach (var date in dates)
+            {
+                Assert.AreEqual(2024, date.GetStdDateTimeOffset().Year);
+                var lunarDateNumber = Calculate.LunarDay(date).GetLunarDateNumber();
+                Assert.IsTrue(lunarDateNumber == 11 || lunarDateNumber == 26, $"Expected tithi 11 or 26, got {lunarDateNumber}");
+            }
+
+            var sorted = dates.OrderBy(d => d.GetStdDateTimeOffset()).ToList();
+            CollectionAssert.AreEqual(sorted.Select(d => d.GetStdDateTimeOffset()).ToList(), dates.Select(d => d.GetStdDateTimeOffset()).ToList(), "Expected dates already sorted ascending");
         }
     }
 }

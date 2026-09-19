@@ -12,8 +12,12 @@ import { useAppStore } from '@/store/useAppStore';
 import { showErrorToast } from '@/lib/toast';
 import type { BirthTimeJson } from '@/lib/time';
 import { getFestivalCalendar, FESTIVAL_NAMES, type FestivalCalendarResult, type FestivalName } from '@/lib/api/festivalCalendar';
+import { getEkadashiCalendar } from '@/lib/api/muhurat';
 import type { GeoLocation } from '@/lib/api/geo';
 import { Spacing } from '@/constants/theme';
+
+const TABS = ['Festivals', 'Ekadashi & Vrat'] as const;
+type Tab = (typeof TABS)[number];
 
 const FESTIVAL_LABELS: Record<FestivalName, string> = {
   Ramnavami: 'Ramnavami',
@@ -68,7 +72,9 @@ export default function FestivalCalendarScreen() {
   const [year, setYear] = useState(String(currentYear));
   const [location, setLocation] = useState<GeoLocation>(SEATTLE_LOCATION);
   const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<Tab>('Festivals');
   const [calendar, setCalendar] = useState<FestivalCalendarResult | null>(null);
+  const [ekadashiDates, setEkadashiDates] = useState<BirthTimeJson[] | null>(null);
   const [selected, setSelected] = useState<{ label: string; date: BirthTimeJson } | null>(null);
 
   async function handleCalculate() {
@@ -79,9 +85,14 @@ export default function FestivalCalendarScreen() {
     }
     setLoading(true);
     setCalendar(null);
+    setEkadashiDates(null);
     try {
-      const result = await getFestivalCalendar(apiUrlDirect, parsedYear, location);
-      setCalendar(result);
+      const [festivals, ekadashis] = await Promise.all([
+        getFestivalCalendar(apiUrlDirect, parsedYear, location),
+        getEkadashiCalendar(apiUrlDirect, parsedYear, location),
+      ]);
+      setCalendar(festivals);
+      setEkadashiDates(ekadashis);
     } catch (e) {
       showErrorToast(e instanceof Error ? e.message : 'Failed to calculate festival calendar');
     } finally {
@@ -100,7 +111,7 @@ export default function FestivalCalendarScreen() {
         <ThemedText themeColor="textSecondary" style={styles.subtitle}>
           Hindu festival dates are computed fresh each year from tithi (lunar day) and lunar month
           rules - not read from a fixed table - so they fall on a different Gregorian date every
-          year. Tap a festival to see its day's Panchang.
+          year. Tap a festival to see its day&apos;s Panchang.
         </ThemedText>
 
         <ThemedView style={styles.fieldGroup}>
@@ -127,7 +138,22 @@ export default function FestivalCalendarScreen() {
           )}
         </Pressable>
 
-        {sortedFestivals.length > 0 && (
+        {(calendar || ekadashiDates) && (
+          <ThemedView style={styles.tabRow}>
+            {TABS.map((t) => (
+              <Pressable
+                key={t}
+                onPress={() => setTab(t)}
+                style={[styles.tabChip, tab === t && styles.tabChipActive, { borderColor: theme.backgroundSelected }]}>
+                <ThemedText type="small" themeColor={tab === t ? 'background' : 'text'}>
+                  {t}
+                </ThemedText>
+              </Pressable>
+            ))}
+          </ThemedView>
+        )}
+
+        {tab === 'Festivals' && sortedFestivals.length > 0 && (
           <ThemedView style={styles.list}>
             {sortedFestivals.map((name) => {
               const date = calendar![name]!;
@@ -148,6 +174,30 @@ export default function FestivalCalendarScreen() {
                 </Pressable>
               );
             })}
+          </ThemedView>
+        )}
+
+        {tab === 'Ekadashi & Vrat' && ekadashiDates && (
+          <ThemedView style={styles.list}>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
+              Ekadashi (tithi 11 of each paksha) recurs roughly every 15 days - see
+              Calculate.EkadashiCalendar. Other Vrats aren&apos;t computed yet.
+            </ThemedText>
+            {ekadashiDates.map((date, i) => (
+              <Pressable
+                key={i}
+                onPress={() => setSelected({ label: 'Ekadashi', date })}
+                style={[styles.festivalRow, { borderColor: theme.backgroundSelected }]}>
+                <Icon name="moon" size={22} color={theme.textSecondary} />
+                <ThemedView style={styles.festivalText}>
+                  <ThemedText type="smallBold">Ekadashi</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {formatDate(date)}
+                  </ThemedText>
+                </ThemedView>
+                <Icon name="chevron-right" size={16} color={theme.textSecondary} />
+              </Pressable>
+            ))}
           </ThemedView>
         )}
       </ThemedView>
@@ -191,6 +241,21 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     minWidth: 100,
     alignSelf: 'flex-start',
+  },
+  tabRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  tabChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
+  },
+  tabChipActive: {
+    backgroundColor: '#0d6efd',
+    borderColor: '#0d6efd',
   },
   calculateButton: {
     backgroundColor: '#0d6efd',

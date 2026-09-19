@@ -35,6 +35,16 @@ export function longitudeToLmtOffsetMinutes(longitudeDeg: number): number {
   return Math.round(((longitudeDeg / 15) * 60) as number);
 }
 
+/** Parses a "HH:mm dd/MM/yyyy zzz" StdTime string back to the real instant it names - the inverse of formatStdTimeText. */
+export function parseStdTime(stdTime: string): Date {
+  const match = /^(\d{2}):(\d{2}) (\d{2})\/(\d{2})\/(\d{4}) ([+-])(\d{2}):(\d{2})$/.exec(stdTime.trim());
+  if (!match) throw new Error(`Unrecognized StdTime format: ${stdTime}`);
+  const [, hh, mm, dd, mo, yyyy, sign, offHh, offMm] = match;
+  const offsetMinutes = (sign === '-' ? -1 : 1) * (Number(offHh) * 60 + Number(offMm));
+  const utcMs = Date.UTC(Number(yyyy), Number(mo) - 1, Number(dd), Number(hh), Number(mm)) - offsetMinutes * 60_000;
+  return new Date(utcMs);
+}
+
 function formatStdTimeText(date: Date, offsetMinutes: number): string {
   const shifted = new Date(date.getTime() + offsetMinutes * 60_000);
   const pad = (n: number) => String(n).padStart(2, '0');

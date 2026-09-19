@@ -52,6 +52,10 @@ type AppState = {
   darkMode: boolean;
   setDarkMode: (value: boolean) => void;
 
+  /** See src/lib/notifications/sunriseSunsetReminders.ts - which local reminders are enabled. */
+  remindersEnabled: { sunrise: boolean; sunset: boolean };
+  setRemindersEnabled: (value: { sunrise: boolean; sunset: boolean }) => void;
+
   /** Mirrors URL.ApiUrlDirect: local API when debugMode is on, deployed API otherwise. */
   apiUrlDirect: () => string;
   apiEndpoints: () => ReturnType<typeof apiEndpoints>;
@@ -91,6 +95,9 @@ export const useAppStore = create<AppState>()(
       darkMode: false,
       setDarkMode: (value) => set({ darkMode: value }),
 
+      remindersEnabled: { sunrise: false, sunset: false },
+      setRemindersEnabled: (value) => set({ remindersEnabled: value }),
+
       apiUrlDirect: () => getApiUrlDirect(get().debugMode),
       apiEndpoints: () => apiEndpoints(get().apiUrlDirect()),
     }),
@@ -103,6 +110,7 @@ export const useAppStore = create<AppState>()(
         currentUser: state.currentUser,
         previousLoginMethod: state.previousLoginMethod,
         visitorId: state.visitorId,
+        remindersEnabled: state.remindersEnabled,
       }),
     }
   )
